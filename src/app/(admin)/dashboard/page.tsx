@@ -1,9 +1,17 @@
 
+import Link from "next/link";
+import { performance } from "node:perf_hooks";
+
 import { requireAdmin } from "@/lib/auth";
 import { getInventoryItems } from "@/lib/inventory";
-import { getInventoryAnalytics } from "@/lib/inventory-analytics";
+
+import {
+  getInventoryAnalytics,
+  type AnalyticsPeriod,
+} from "@/lib/inventory-analytics";
 
 import InventoryAnalytics from "@/components/dashboard/InventoryAnalytics";
+import InventoryInsights from "@/components/dashboard/InventoryInsights";
 
 import {
   Card,
@@ -28,37 +36,114 @@ import {
   Wheat,
   CakeSlice,
   AlertTriangle,
+  BarChart3,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
-  // Verify admin access.
-  await requireAdmin();
+type DashboardProps = {
+  searchParams: Promise<{
+    period?: string | string[];
+  }>;
+};
 
-  let items: Awaited<ReturnType<typeof getInventoryItems>> = [];
-  let inventoryError = "";
-  let analyticsError = "";
+// Enable performance logging in development or when PERF_DEBUG=true.
+const shouldMeasurePerformance =
+  process.env.NODE_ENV === "development" ||
+  process.env.PERF_DEBUG === "true";
 
-  // Fetch inventory items.
-  try {
-    items = await getInventoryItems();
-  } catch (error) {
-    console.error("Dashboard inventory error:", error);
-    inventoryError = "Data inventory belum dapat dimuat.";
+// Measure an asynchronous server operation.
+async function measureOperation<T>(
+  label: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  if (!shouldMeasurePerformance) {
+    return operation();
   }
 
-  // Fetch transaction analytics.
-  let analytics: Awaited<
-    ReturnType<typeof getInventoryAnalytics>
-  > | null = null;
+  const startedAt = performance.now();
 
   try {
-    analytics = await getInventoryAnalytics();
-  } catch (error) {
-    console.error("Dashboard analytics error:", error);
-    analyticsError = "Data analytics belum dapat dimuat.";
+    return await operation();
+  } finally {
+    console.info(
+      `[Dashboard] ${label}: ${Math.round(
+        performance.now() - startedAt
+      )}ms`
+    );
   }
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: DashboardProps) {
+  const pageStartedAt = performance.now();
+
+  // Verify admin access before accessing inventory data.
+  await measureOperation("Auth", () => requireAdmin());
+
+  // Read and validate the selected analytics period.
+  const params = await searchParams;
+
+  const period: AnalyticsPeriod =
+    params.period === "30" ? 30 : 7;
+
+  // Fetch inventory and analytics concurrently.
+  const inventoryPromise = measureOperation(
+    "Inventory Query",
+    () => getInventoryItems()
+  );
+
+  // Start analytics immediately; reuse inventory metadata.
+  const analyticsPromise = measureOperation(
+    "Analytics Query",
+    () =>
+      getInventoryAnalytics(period, {
+        inventoryPromise,
+      })
+  );
+
+  // Preserve independent error handling.
+  const [inventoryResult, analyticsResult] =
+    await Promise.allSettled([
+      inventoryPromise,
+      analyticsPromise,
+    ]);
+
+  // Handle inventory errors independently.
+  const inventoryError =
+    inventoryResult.status === "rejected"
+      ? "Data inventory belum dapat dimuat."
+      : "";
+
+  const analyticsError =
+    analyticsResult.status === "rejected"
+      ? "Data analytics belum dapat dimuat."
+      : "";
+
+  if (inventoryResult.status === "rejected") {
+    console.error(
+      "Dashboard inventory error:",
+      inventoryResult.reason
+    );
+  }
+
+  if (analyticsResult.status === "rejected") {
+    console.error(
+      "Dashboard analytics error:",
+      analyticsResult.reason
+    );
+  }
+
+  const items =
+    inventoryResult.status === "fulfilled"
+      ? inventoryResult.value
+      : [];
+
+  const analytics =
+    analyticsResult.status === "fulfilled"
+      ? analyticsResult.value
+      : null;
 
   // Calculate inventory statistics.
   const totalItems = items.length;
@@ -71,6 +156,7 @@ export default async function DashboardPage() {
     (item) => item.category === "finished_product"
   ).length;
 
+  // Find items at or below minimum stock.
   const lowStockItems = items
     .filter(
       (item) =>
@@ -85,6 +171,7 @@ export default async function DashboardPage() {
       minimum_stock: Number(item.minimum_stock),
     }));
 
+  // Prepare inventory statistics cards.
   const stats = [
     {
       title: "Total Items",
@@ -108,8 +195,18 @@ export default async function DashboardPage() {
     },
   ];
 
+  // Log total server data preparation time.
+  if (shouldMeasurePerformance) {
+    console.info(
+      `[Dashboard] ${period} days | Server data ready: ` +
+        `${Math.round(
+          performance.now() - pageStartedAt
+        )}ms`
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-background px-4 py-8 md:px-8">
+    <div className="bg-background px-4 py-8 md:px-8">
       <div className="mx-auto max-w-7xl space-y-8">
         {/* Dashboard header */}
         <div>
@@ -248,25 +345,103 @@ export default async function DashboardPage() {
           </>
         )}
 
-        {/* Transaction analytics */}
-        {analyticsError ? (
-          <div
-            role="alert"
-            className="rounded-lg border border-destructive p-4 text-sm text-destructive"
-          >
-            {analyticsError}
+        {/* Analytics section */}
+        <section className="space-y-6">
+          {/* Analytics header and period filter */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <BarChart3 className="h-5 w-5" />
+                Transaction Analytics
+              </h2>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                Monitor stock activity over time.
+              </p>
+            </div>
+
+            {/* Date range filter */}
+            <div
+              role="group"
+              aria-label="Analytics period"
+              className="flex w-fit items-center gap-2"
+            >
+              <Link
+                href="/dashboard?period=7"
+                prefetch={false}
+                aria-current={
+                  period === 7 ? "page" : undefined
+                }
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  period === 7
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "hover:bg-muted"
+                }`}
+              >
+                7 Days
+              </Link>
+
+              <Link
+                href="/dashboard?period=30"
+                prefetch={false}
+                aria-current={
+                  period === 30 ? "page" : undefined
+                }
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  period === 30
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "hover:bg-muted"
+                }`}
+              >
+                30 Days
+              </Link>
+            </div>
           </div>
-        ) : analytics ? (
-          <InventoryAnalytics
-            data={{
-              totals: analytics.totals,
-              daily: analytics.daily,
-              lowStock: lowStockItems,
-              lowStockCount: lowStockItems.length,
-            }}
-          />
-        ) : null}
+
+          {/* Analytics error */}
+          {analyticsError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive p-4 text-sm text-destructive"
+            >
+              {analyticsError}
+            </div>
+          )}
+
+          {/* Transaction analytics and stock alerts */}
+          {analytics && !inventoryError && (
+            <InventoryAnalytics
+              period={period}
+              data={{
+                totals: analytics.totals,
+                daily: analytics.daily,
+                lowStock: lowStockItems,
+                lowStockCount: lowStockItems.length,
+              }}
+            />
+          )}
+
+          {/* Top used materials and waste monitoring */}
+          {analytics && (
+            <InventoryInsights
+              period={period}
+              topUsedMaterials={analytics.topUsedMaterials}
+              wasteMonitoring={analytics.wasteMonitoring}
+            />
+          )}
+
+          {/* Explain unavailable stock alerts */}
+          {analytics && inventoryError && (
+            <div
+              role="status"
+              className="rounded-lg border p-4 text-sm text-muted-foreground"
+            >
+              Informasi Low Stock Alerts belum dapat
+              ditampilkan karena data inventory gagal dimuat.
+            </div>
+          )}
+        </section>
       </div>
-    </main>
+    </div>
   );
 }

@@ -10,6 +10,8 @@ import { requireAdmin } from "@/lib/auth";
 import { getInventoryItems } from "@/lib/inventory";
 
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
+import { EditItemDialog } from "@/components/inventory/EditItemDialog";
+import { DeleteItemDialog } from "@/components/inventory/DeleteItemDialog";
 import StockTransactionDialog from "@/components/inventory/StockTransactionDialog";
 
 import {
@@ -32,7 +34,7 @@ import {
 } from "@/components/ui/table";
 
 export default async function InventoryPage() {
-  // Verify admin access.
+  // Verify admin access before fetching data.
   await requireAdmin();
 
   // Fetch inventory data.
@@ -62,7 +64,7 @@ export default async function InventoryPage() {
   }));
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 md:px-8">
+    <div className="bg-background px-4 py-8 md:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         {/* Page header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -95,6 +97,7 @@ export default async function InventoryPage() {
           </div>
         </div>
 
+        {/* Inventory error */}
         {errorMessage ? (
           <div
             role="alert"
@@ -150,7 +153,7 @@ export default async function InventoryPage() {
               </CardHeader>
 
               <CardContent>
-                <div className="overflow-x-auto">
+                <div className="w-full overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -159,14 +162,24 @@ export default async function InventoryPage() {
                         <TableHead>Stock</TableHead>
                         <TableHead>Minimum</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead className="text-right">
+                          Actions
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
 
                     <TableBody>
                       {items.map((item) => {
+                        const currentStock = Number(
+                          item.current_stock
+                        );
+
+                        const minimumStock = Number(
+                          item.minimum_stock
+                        );
+
                         const isLow =
-                          Number(item.current_stock) <=
-                          Number(item.minimum_stock);
+                          currentStock <= minimumStock;
 
                         return (
                           <TableRow key={item.id}>
@@ -180,12 +193,12 @@ export default async function InventoryPage() {
                                 : "Finished Product"}
                             </TableCell>
 
-                            <TableCell>
-                              {item.current_stock} {item.unit}
+                            <TableCell className="whitespace-nowrap">
+                              {currentStock} {item.unit}
                             </TableCell>
 
-                            <TableCell>
-                              {item.minimum_stock} {item.unit}
+                            <TableCell className="whitespace-nowrap">
+                              {minimumStock} {item.unit}
                             </TableCell>
 
                             <TableCell>
@@ -201,6 +214,27 @@ export default async function InventoryPage() {
                                   : "Sufficient"}
                               </Badge>
                             </TableCell>
+
+                            <TableCell>
+                              <div className="flex items-center justify-end gap-2">
+                                <EditItemDialog
+                                  item={{
+                                    id: item.id,
+                                    name: item.name,
+                                    category: item.category,
+                                    unit: item.unit,
+                                    minimum_stock: minimumStock,
+                                  }}
+                                />
+
+                                <DeleteItemDialog
+                                  item={{
+                                    id: item.id,
+                                    name: item.name,
+                                  }}
+                                />
+                              </div>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -208,7 +242,7 @@ export default async function InventoryPage() {
                       {items.length === 0 && (
                         <TableRow>
                           <TableCell
-                            colSpan={5}
+                            colSpan={6}
                             className="py-10 text-center text-muted-foreground"
                           >
                             No inventory items found.
@@ -220,17 +254,9 @@ export default async function InventoryPage() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Dashboard navigation */}
-            <Link
-              href="/dashboard"
-              className="inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              Back to Dashboard
-            </Link>
           </>
         )}
       </div>
-    </main>
+    </div>
   );
 }

@@ -1,6 +1,10 @@
 
 import Link from "next/link";
-import { ArrowLeft, ChevronLeft, ChevronRight, History } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  History,
+} from "lucide-react";
 
 import { requireAdmin } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -61,13 +65,18 @@ const PAGE_SIZE = 10;
 export default async function TransactionsPage({
   searchParams,
 }: PageProps) {
-  // Verify admin access.
+  // Verify admin access before accessing transactions.
   await requireAdmin();
 
   // Read and normalize URL parameters.
   const params = await searchParams;
-  const search = (params.search ?? "").trim().slice(0, 100);
+
+  const search = (params.search ?? "")
+    .trim()
+    .slice(0, 100);
+
   const requestedType = params.type ?? "all";
+
   const type =
     requestedType === "all" ||
     validTypes.includes(requestedType as TransactionType)
@@ -75,6 +84,7 @@ export default async function TransactionsPage({
       : "all";
 
   const parsedPage = Number(params.page ?? "1");
+
   const page =
     Number.isSafeInteger(parsedPage) && parsedPage > 0
       ? parsedPage
@@ -108,7 +118,9 @@ export default async function TransactionsPage({
 
       if (error) throw error;
 
-      matchingItemIds = (data ?? []).map((item) => item.id);
+      matchingItemIds = (data ?? []).map(
+        (item) => item.id
+      );
     }
 
     if (matchingItemIds?.length !== 0) {
@@ -125,7 +137,10 @@ export default async function TransactionsPage({
       }
 
       if (matchingItemIds !== null) {
-        query = query.in("item_id", matchingItemIds);
+        query = query.in(
+          "item_id",
+          matchingItemIds
+        );
       }
 
       // Fetch the requested page.
@@ -142,7 +157,9 @@ export default async function TransactionsPage({
 
       // Fetch item information for displayed rows.
       const itemIds = [
-        ...new Set((data ?? []).map((row) => row.item_id)),
+        ...new Set(
+          (data ?? []).map((row) => row.item_id)
+        ),
       ];
 
       let itemMap = new Map<
@@ -151,18 +168,23 @@ export default async function TransactionsPage({
       >();
 
       if (itemIds.length > 0) {
-        const { data: items, error: itemsError } =
-          await supabaseAdmin
-            .from("items")
-            .select("id, name, unit")
-            .in("id", itemIds);
+        const {
+          data: items,
+          error: itemsError,
+        } = await supabaseAdmin
+          .from("items")
+          .select("id, name, unit")
+          .in("id", itemIds);
 
         if (itemsError) throw itemsError;
 
         itemMap = new Map(
           (items ?? []).map((item) => [
             item.id,
-            { name: item.name, unit: item.unit },
+            {
+              name: item.name,
+              unit: item.unit,
+            },
           ])
         );
       }
@@ -178,8 +200,13 @@ export default async function TransactionsPage({
       });
     }
   } catch (error) {
-    console.error("Transactions page error:", error);
-    errorMessage = "Riwayat transaksi belum dapat dimuat.";
+    console.error(
+      "Transactions page error:",
+      error
+    );
+
+    errorMessage =
+      "Riwayat transaksi belum dapat dimuat.";
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -188,8 +215,13 @@ export default async function TransactionsPage({
   function pageUrl(targetPage: number) {
     const query = new URLSearchParams();
 
-    if (search) query.set("search", search);
-    if (type !== "all") query.set("type", type);
+    if (search) {
+      query.set("search", search);
+    }
+
+    if (type !== "all") {
+      query.set("type", type);
+    }
 
     query.set("page", String(targetPage));
 
@@ -197,36 +229,32 @@ export default async function TransactionsPage({
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 md:px-8">
+    <div className="bg-background px-4 py-8 md:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         {/* Page header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
-              <History className="h-8 w-8" />
-              Transaction History
-            </h1>
+        <div>
+          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
+            <History className="h-8 w-8" />
+            Transaction History
+          </h1>
 
-            <p className="mt-2 text-muted-foreground">
-              Search, filter, and review stock movements.
-            </p>
-          </div>
-
-          <Button variant="outline" asChild>
-            <Link href="/inventory">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Inventory
-            </Link>
-          </Button>
+          <p className="mt-2 text-muted-foreground">
+            Search, filter, and review stock movements.
+          </p>
         </div>
 
         {/* Search and transaction filters */}
-        <TransactionFilters search={search} type={type} />
+        <TransactionFilters
+          search={search}
+          type={type}
+        />
 
         {/* Transaction history table */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Transactions</CardTitle>
+            <CardTitle>
+              Recent Transactions
+            </CardTitle>
 
             <p className="text-sm text-muted-foreground">
               {total} transaction(s) found.
@@ -235,7 +263,10 @@ export default async function TransactionsPage({
 
           <CardContent>
             {errorMessage ? (
-              <p role="alert" className="text-sm text-destructive">
+              <p
+                role="alert"
+                className="text-sm text-destructive"
+              >
                 {errorMessage}
               </p>
             ) : (
@@ -269,7 +300,9 @@ export default async function TransactionsPage({
                             <TableCell>
                               <Badge
                                 variant={
-                                  isIncoming ? "secondary" : "outline"
+                                  isIncoming
+                                    ? "secondary"
+                                    : "outline"
                                 }
                               >
                                 {typeLabels[transactionType] ??
@@ -286,7 +319,8 @@ export default async function TransactionsPage({
                                 }
                               >
                                 {isIncoming ? "+" : "−"}
-                                {transaction.quantity} {transaction.unit}
+                                {transaction.quantity}{" "}
+                                {transaction.unit}
                               </span>
                             </TableCell>
 
@@ -295,12 +329,17 @@ export default async function TransactionsPage({
                             </TableCell>
 
                             <TableCell className="whitespace-nowrap">
-                              {new Intl.DateTimeFormat("id-ID", {
-                                dateStyle: "medium",
-                                timeStyle: "short",
-                                timeZone: "Asia/Jakarta",
-                              }).format(
-                                new Date(transaction.created_at)
+                              {new Intl.DateTimeFormat(
+                                "id-ID",
+                                {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                  timeZone: "Asia/Jakarta",
+                                }
+                              ).format(
+                                new Date(
+                                  transaction.created_at
+                                )
                               )}
                             </TableCell>
                           </TableRow>
@@ -324,33 +363,54 @@ export default async function TransactionsPage({
                 {/* Pagination controls */}
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted-foreground">
-                    Page {page} of {Math.max(totalPages, 1)}
+                    Page {page} of{" "}
+                    {Math.max(totalPages, 1)}
                   </p>
 
                   <div className="flex items-center gap-2">
                     {page > 1 ? (
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={pageUrl(page - 1)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                      >
+                        <Link
+                          href={pageUrl(page - 1)}
+                        >
                           <ChevronLeft className="mr-1 h-4 w-4" />
                           Previous
                         </Link>
                       </Button>
                     ) : (
-                      <Button variant="outline" size="sm" disabled>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                      >
                         <ChevronLeft className="mr-1 h-4 w-4" />
                         Previous
                       </Button>
                     )}
 
                     {page < totalPages ? (
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={pageUrl(page + 1)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                      >
+                        <Link
+                          href={pageUrl(page + 1)}
+                        >
                           Next
                           <ChevronRight className="ml-1 h-4 w-4" />
                         </Link>
                       </Button>
                     ) : (
-                      <Button variant="outline" size="sm" disabled>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                      >
                         Next
                         <ChevronRight className="ml-1 h-4 w-4" />
                       </Button>
@@ -362,6 +422,6 @@ export default async function TransactionsPage({
           </CardContent>
         </Card>
       </div>
-    </main>
+    </div>
   );
 }

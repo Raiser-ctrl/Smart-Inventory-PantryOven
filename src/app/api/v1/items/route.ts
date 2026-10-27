@@ -12,7 +12,11 @@ const noStoreHeaders = {
 
 type AuthResult =
   | { authorized: true }
-  | { authorized: false; status: number; message: string };
+  | {
+      authorized: false;
+      status: number;
+      message: string;
+    };
 
 async function verifyAdmin(): Promise<AuthResult> {
   const supabase = await createClient();
@@ -33,7 +37,7 @@ async function verifyAdmin(): Promise<AuthResult> {
   const adminUserId = process.env.ADMIN_USER_ID;
 
   if (!adminUserId) {
-    console.error("ADMIN_USER_ID belum dikonfigurasi");
+    console.error("ADMIN_USER_ID belum dikonfigurasi.");
 
     return {
       authorized: false,
@@ -66,6 +70,48 @@ function jsonError(message: string, status: number) {
   );
 }
 
+function verifyRequestOrigin(request: NextRequest) {
+  const origin = request.headers.get("origin");
+
+  const allowedOrigin =
+    process.env.APP_ORIGIN ??
+    (process.env.NODE_ENV === "development"
+      ? "http://localhost:3000"
+      : "");
+
+  if (!allowedOrigin) {
+    console.error("APP_ORIGIN belum dikonfigurasi.");
+
+    return jsonError(
+      "Konfigurasi origin server belum lengkap.",
+      500
+    );
+  }
+
+  if (origin !== allowedOrigin) {
+    return jsonError(
+      "Origin request tidak diizinkan.",
+      403
+    );
+  }
+
+  return null;
+}
+
+function verifyJsonContentType(request: NextRequest) {
+  const contentType =
+    request.headers.get("content-type") ?? "";
+
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    return jsonError(
+      "Content-Type harus application/json.",
+      415
+    );
+  }
+
+  return null;
+}
+
 // GET /api/v1/items
 // Retrieve inventory data for admin.
 export async function GET() {
@@ -82,7 +128,10 @@ export async function GET() {
       .order("name", { ascending: true });
 
     if (error) {
-      console.error("GET inventory error:", error.message);
+      console.error(
+        "GET inventory error:",
+        error.message
+      );
 
       return jsonError(
         "Gagal mengambil data inventory.",
@@ -93,7 +142,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: true,
-        message: "Data inventory berhasil diambil",
+        message: "Data inventory berhasil diambil.",
         data: data ?? [],
       },
       {
@@ -104,7 +153,10 @@ export async function GET() {
   } catch (error) {
     console.error("GET items error:", error);
 
-    return jsonError("Internal Server Error", 500);
+    return jsonError(
+      "Internal Server Error",
+      500
+    );
   }
 }
 
@@ -112,58 +164,38 @@ export async function GET() {
 // Create a new inventory item for admin.
 export async function POST(request: NextRequest) {
   try {
-    // 1. Verify admin before processing input.
+    // Verify admin access before processing input.
     const auth = await verifyAdmin();
 
     if (!auth.authorized) {
       return jsonError(auth.message, auth.status);
     }
 
-    // 2. Verify request origin to reduce CSRF risk.
-    const origin = request.headers.get("origin");
+    // Verify request origin.
+    const originError = verifyRequestOrigin(request);
 
-    const allowedOrigin =
-      process.env.APP_ORIGIN ??
-      (process.env.NODE_ENV === "development"
-        ? "http://localhost:3000"
-        : "");
-
-    if (!allowedOrigin) {
-      console.error("APP_ORIGIN belum dikonfigurasi");
-
-      return jsonError(
-        "Konfigurasi origin server belum lengkap.",
-        500
-      );
+    if (originError) {
+      return originError;
     }
 
-    if (origin !== allowedOrigin) {
-      return jsonError(
-        "Origin request tidak diizinkan.",
-        403
-      );
+    // Verify JSON content type.
+    const contentTypeError =
+      verifyJsonContentType(request);
+
+    if (contentTypeError) {
+      return contentTypeError;
     }
 
-    // 3. Verify JSON content type.
-    const contentType =
-      request.headers.get("content-type") ?? "";
-
-    if (
-      !/^application\/json(?:\s*;|$)/i.test(contentType)
-    ) {
-      return jsonError(
-        "Content-Type harus application/json.",
-        415
-      );
-    }
-
-    // 4. Parse request body.
+    // Parse request body.
     let body: unknown;
 
     try {
       body = await request.json();
     } catch {
-      return jsonError("Format JSON tidak valid.", 400);
+      return jsonError(
+        "Format JSON tidak valid.",
+        400
+      );
     }
 
     if (
@@ -171,12 +203,15 @@ export async function POST(request: NextRequest) {
       typeof body !== "object" ||
       Array.isArray(body)
     ) {
-      return jsonError("Data barang tidak valid.", 400);
+      return jsonError(
+        "Data barang tidak valid.",
+        400
+      );
     }
 
     const input = body as Record<string, unknown>;
 
-    // 5. Validate fields.
+    // Normalize and validate fields.
     const name =
       typeof input.name === "string"
         ? input.name.trim()
@@ -219,7 +254,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. Insert item after authorization and validation.
+    // Insert item after authorization and validation.
     const { data, error } = await supabaseAdmin
       .from("items")
       .insert({
@@ -235,7 +270,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      console.error("POST inventory error:", error.message);
+      console.error(
+        "POST inventory error:",
+        error.message
+      );
 
       return jsonError(
         "Gagal menyimpan barang ke database.",
@@ -243,7 +281,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Return created item.
     return NextResponse.json(
       {
         success: true,
@@ -258,6 +295,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("POST items error:", error);
 
-    return jsonError("Internal Server Error", 500);
+    return jsonError(
+      "Internal Server Error",
+      500
+    );
   }
 }

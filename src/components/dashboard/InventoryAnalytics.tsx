@@ -21,6 +21,7 @@ import {
   Trash2,
   AlertTriangle,
   CheckCircle2,
+  BarChart3,
 } from "lucide-react";
 
 import {
@@ -63,6 +64,7 @@ type AnalyticsData = {
 
 type Props = {
   data: AnalyticsData;
+  period?: 7 | 30;
 };
 
 const numberFormatter = new Intl.NumberFormat("id-ID", {
@@ -76,12 +78,12 @@ const chartColors = {
   waste: "#ef4444",
 };
 
-// Format quantities using Indonesian notation.
+// Format numbers using Indonesian notation.
 function formatNumber(value: number) {
   return numberFormatter.format(value);
 }
 
-// Format dates without timezone shifts.
+// Format calendar dates without timezone shifts.
 function formatChartDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
 
@@ -96,7 +98,10 @@ function formatChartDate(value: string) {
   }).format(date);
 }
 
-export default function InventoryAnalytics({ data }: Props) {
+export default function InventoryAnalytics({
+  data,
+  period = 7,
+}: Props) {
   // Prepare transaction summary cards.
   const stats = [
     {
@@ -133,7 +138,7 @@ export default function InventoryAnalytics({ data }: Props) {
     },
   ] as const;
 
-  // Prepare chart data.
+  // Prepare daily chart data.
   const chartData = useMemo(
     () =>
       data.daily.map((entry) => ({
@@ -144,10 +149,12 @@ export default function InventoryAnalytics({ data }: Props) {
   );
 
   // Calculate total transaction count.
-  const totalTransactions = Object.values(data.totals).reduce(
-    (sum, value) => sum + value,
-    0
-  );
+  const totalTransactions = Object.values(
+    data.totals
+  ).reduce((sum, value) => sum + value, 0);
+
+  // Check whether there is actual transaction activity.
+  const hasTransactions = totalTransactions > 0;
 
   // Sort items by stock shortage.
   const lowStockItems = useMemo(
@@ -179,7 +186,7 @@ export default function InventoryAnalytics({ data }: Props) {
         </div>
 
         <Badge variant="secondary" className="w-fit">
-          Last 7 Days
+          Last {period} Days
         </Badge>
       </div>
 
@@ -210,7 +217,7 @@ export default function InventoryAnalytics({ data }: Props) {
                 </p>
 
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Transactions in last 7 days
+                  Transactions in last {period} days
                 </p>
               </CardContent>
             </Card>
@@ -226,7 +233,8 @@ export default function InventoryAnalytics({ data }: Props) {
               <CardTitle>Stock Activity</CardTitle>
 
               <p className="mt-1 text-sm text-muted-foreground">
-                Daily stock transaction activity.
+                Daily transaction counts for the last{" "}
+                {period} days.
               </p>
             </div>
 
@@ -237,10 +245,19 @@ export default function InventoryAnalytics({ data }: Props) {
         </CardHeader>
 
         <CardContent>
-          {chartData.length === 0 ? (
-            <div className="flex h-[300px] items-center justify-center text-center">
-              <p className="text-sm text-muted-foreground">
-                No transaction data available.
+          {!hasTransactions ? (
+            <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center">
+              <div className="rounded-full bg-muted p-3">
+                <BarChart3 className="h-7 w-7 text-muted-foreground" />
+              </div>
+
+              <p className="font-medium">
+                No Transaction Activity
+              </p>
+
+              <p className="max-w-sm text-sm text-muted-foreground">
+                No stock transactions were recorded during
+                the selected period.
               </p>
             </div>
           ) : (
@@ -270,6 +287,8 @@ export default function InventoryAnalytics({ data }: Props) {
                     dataKey="label"
                     tickLine={false}
                     axisLine={false}
+                    interval={period === 30 ? 4 : 0}
+                    minTickGap={12}
                     tick={{
                       fontSize: 11,
                       fill: "currentColor",
@@ -289,14 +308,19 @@ export default function InventoryAnalytics({ data }: Props) {
 
                   <Tooltip
                     formatter={(value, name) => [
-                      `${formatNumber(Number(value ?? 0))} transactions`,
+                      `${formatNumber(
+                        Number(value ?? 0)
+                      )} transactions`,
                       String(name),
                     ]}
                     contentStyle={{
                       borderRadius: 10,
-                      border: "1px solid #e5e7eb",
-                      color: "#111827",
-                      backgroundColor: "#ffffff",
+                      border: "1px solid var(--border)",
+                      color: "var(--foreground)",
+                      backgroundColor: "var(--card)",
+                    }}
+                    labelStyle={{
+                      color: "var(--foreground)",
                     }}
                   />
 
@@ -434,13 +458,17 @@ export default function InventoryAnalytics({ data }: Props) {
 
                     <div className="text-left sm:text-right">
                       <p className="font-semibold">
-                        {formatNumber(item.current_stock)}{" "}
+                        {formatNumber(
+                          item.current_stock
+                        )}{" "}
                         {item.unit}
                       </p>
 
                       <p className="text-xs text-muted-foreground">
                         Minimum:{" "}
-                        {formatNumber(item.minimum_stock)}{" "}
+                        {formatNumber(
+                          item.minimum_stock
+                        )}{" "}
                         {item.unit}
                       </p>
                     </div>
