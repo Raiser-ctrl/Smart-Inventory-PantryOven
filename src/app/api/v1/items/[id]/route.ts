@@ -131,7 +131,9 @@ export async function PATCH(
     const contentType =
       request.headers.get("content-type") ?? "";
 
-    if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    if (
+      !/^application\/json(?:\s*;|$)/i.test(contentType)
+    ) {
       return jsonError(
         "Content-Type harus application/json.",
         415
@@ -203,7 +205,7 @@ export async function PATCH(
     const { data: existing, error: lookupError } =
       await supabaseAdmin
         .from("items")
-        .select("id, unit")
+        .select("id, unit, archived_at")
         .eq("id", id)
         .maybeSingle();
 
@@ -213,7 +215,15 @@ export async function PATCH(
       return jsonError("Barang tidak ditemukan.", 404);
     }
 
-    // Preserve the unit of historical transactions.
+    // Archived items cannot be edited.
+    if (existing.archived_at !== null) {
+      return jsonError(
+        "Barang sudah diarsipkan. Aktifkan kembali sebelum mengedit barang.",
+        409
+      );
+    }
+
+    // Preserve historical transaction units.
     if (
       unit !== existing.unit &&
       (await hasTransactions(id))
@@ -233,6 +243,7 @@ export async function PATCH(
         minimum_stock: minimumStock,
       })
       .eq("id", id)
+      .is("archived_at", null)
       .select(
         "id, name, category, unit, initial_stock, minimum_stock"
       )
@@ -248,7 +259,10 @@ export async function PATCH(
     }
 
     if (!data) {
-      return jsonError("Barang tidak ditemukan.", 404);
+      return jsonError(
+        "Status barang sudah berubah. Silakan muat ulang.",
+        409
+      );
     }
 
     return NextResponse.json(
@@ -284,7 +298,7 @@ export async function DELETE(
     const { data: existing, error: lookupError } =
       await supabaseAdmin
         .from("items")
-        .select("id")
+        .select("id, archived_at")
         .eq("id", id)
         .maybeSingle();
 
@@ -294,6 +308,15 @@ export async function DELETE(
       return jsonError("Barang tidak ditemukan.", 404);
     }
 
+    // Archived items cannot be deleted.
+    if (existing.archived_at !== null) {
+      return jsonError(
+        "Barang sudah diarsipkan. Aktifkan kembali sebelum menghapus barang.",
+        409
+      );
+    }
+
+    // Preserve transaction history.
     if (await hasTransactions(id)) {
       return jsonError(
         "Barang tidak dapat dihapus karena memiliki riwayat transaksi.",
@@ -305,11 +328,11 @@ export async function DELETE(
       .from("items")
       .delete()
       .eq("id", id)
+      .is("archived_at", null)
       .select("id")
       .maybeSingle();
 
     if (error) {
-      // PostgreSQL foreign key violation.
       if (error.code === "23503") {
         return jsonError(
           "Barang tidak dapat dihapus karena masih digunakan oleh data lain.",
@@ -326,7 +349,10 @@ export async function DELETE(
     }
 
     if (!data) {
-      return jsonError("Barang tidak ditemukan.", 404);
+      return jsonError(
+        "Status barang sudah berubah. Silakan muat ulang.",
+        409
+      );
     }
 
     return NextResponse.json(

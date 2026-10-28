@@ -1,4 +1,3 @@
-
 import "server-only";
 
 import { performance } from "node:perf_hooks";
@@ -12,6 +11,7 @@ export type InventoryItem = {
   initial_stock: number;
   minimum_stock: number;
   current_stock: number;
+  archived_at: string | null;
 };
 
 const shouldMeasurePerformance =
@@ -25,7 +25,7 @@ export async function getInventoryItems(): Promise<InventoryItem[]> {
   const { data, error } = await supabaseAdmin
     .from("inventory_current_stock")
     .select(
-      "id, name, category, unit, initial_stock, minimum_stock, current_stock"
+      "id, name, category, unit, initial_stock, minimum_stock, current_stock, archived_at"
     )
     .order("name", { ascending: true });
 

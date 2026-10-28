@@ -24,9 +24,8 @@ const validTypes: TransactionType[] = [
 ];
 
 const uuidRegex =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// Return a consistent API error.
 function jsonError(message: string, status: number) {
   return NextResponse.json(
     {
@@ -40,7 +39,7 @@ function jsonError(message: string, status: number) {
   );
 }
 
-// Verify the authenticated admin.
+// Verify authenticated admin.
 async function verifyAdmin(): Promise<
   | { authorized: true }
   | {
@@ -80,7 +79,8 @@ async function verifyAdmin(): Promise<
     return {
       authorized: false,
       status: 403,
-      message: "Forbidden. Hanya admin yang dapat mengakses transaksi.",
+      message:
+        "Forbidden. Hanya admin yang dapat mengakses transaksi.",
     };
   }
 
@@ -92,17 +92,15 @@ function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
-// Fetch filtered and paginated transactions.
+// GET /api/v1/transactions
 export async function GET(request: NextRequest) {
   try {
-    // Verify admin access.
     const auth = await verifyAdmin();
 
     if (!auth.authorized) {
       return jsonError(auth.message, auth.status);
     }
 
-    // Read query parameters.
     const params = request.nextUrl.searchParams;
 
     const search = (params.get("search") ?? "").trim();
@@ -110,7 +108,6 @@ export async function GET(request: NextRequest) {
     const pageParam = params.get("page") ?? "1";
     const limitParam = params.get("limit") ?? "10";
 
-    // Validate search parameters.
     if (search.length > 100) {
       return jsonError(
         "Pencarian maksimal 100 karakter.",
@@ -128,7 +125,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Validate pagination parameters.
     const page = Number(pageParam);
     const limit = Number(limitParam);
 
@@ -145,7 +141,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Find inventory items matching the search.
+    // Include archived items when searching history.
     let matchingItemIds: string[] | null = null;
 
     if (search) {
@@ -162,10 +158,7 @@ export async function GET(request: NextRequest) {
           message: error.message,
         });
 
-        return jsonError(
-          "Gagal mencari barang.",
-          500
-        );
+        return jsonError("Gagal mencari barang.", 500);
       }
 
       matchingItemIds = (items ?? []).map(
@@ -173,7 +166,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Return empty results when no items match.
     if (matchingItemIds?.length === 0) {
       return NextResponse.json(
         {
@@ -193,7 +185,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build the transaction query.
     let query = supabaseAdmin
       .from("stock_transactions")
       .select(
@@ -201,24 +192,17 @@ export async function GET(request: NextRequest) {
         { count: "exact" }
       );
 
-    // Apply transaction type filter.
     if (type !== "all") {
       query = query.eq("transaction_type", type);
     }
 
-    // Apply inventory item filter.
     if (matchingItemIds !== null) {
-      query = query.in(
-        "item_id",
-        matchingItemIds
-      );
+      query = query.in("item_id", matchingItemIds);
     }
 
-    // Calculate pagination range.
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // Fetch the requested transaction page.
     const { data, count, error } = await query
       .order("created_at", {
         ascending: false,
@@ -241,7 +225,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Collect item IDs from the current page.
     const itemIds = [
       ...new Set(
         (data ?? []).map(
@@ -258,7 +241,6 @@ export async function GET(request: NextRequest) {
       }
     >();
 
-    // Fetch item details for displayed transactions.
     if (itemIds.length > 0) {
       const { data: items, error: itemsError } =
         await supabaseAdmin
@@ -286,7 +268,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Combine transactions with item details.
     const transactions = (data ?? []).map(
       (transaction) => {
         const item = itemMap.get(
@@ -302,7 +283,6 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    // Return paginated transaction history.
     const total = count ?? 0;
 
     return NextResponse.json(
@@ -334,10 +314,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Create a new stock transaction.
+// POST /api/v1/transactions
 export async function POST(request: NextRequest) {
   try {
-    // Verify admin access.
     const auth = await verifyAdmin();
 
     if (!auth.authorized) {
@@ -358,9 +337,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const origin = request.headers.get("origin");
-
-    if (origin !== allowedOrigin) {
+    if (
+      request.headers.get("origin") !== allowedOrigin
+    ) {
       return jsonError(
         "Origin request tidak diizinkan.",
         403
@@ -372,7 +351,9 @@ export async function POST(request: NextRequest) {
       request.headers.get("content-type") ?? "";
 
     if (
-      !/^application\/json(?:\s*;|$)/i.test(contentType)
+      !/^application\/json(?:\s*;|$)/i.test(
+        contentType
+      )
     ) {
       return jsonError(
         "Content-Type harus application/json.",
@@ -380,7 +361,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse the request body.
     let body: unknown;
 
     try {
@@ -405,12 +385,29 @@ export async function POST(request: NextRequest) {
 
     const input = body as Record<string, unknown>;
 
+    const allowedFields = [
+      "item_id",
+      "transaction_type",
+      "quantity",
+      "notes",
+    ];
+
+    if (
+      Object.keys(input).some(
+        (key) => !allowedFields.includes(key)
+      )
+    ) {
+      return jsonError(
+        "Terdapat field yang tidak diizinkan.",
+        400
+      );
+    }
+
     const itemId = input.item_id;
     const transactionType = input.transaction_type;
     const quantity = input.quantity;
     const notes = input.notes;
 
-    // Validate the inventory item ID.
     if (
       typeof itemId !== "string" ||
       !uuidRegex.test(itemId)
@@ -421,7 +418,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate the transaction type.
     if (
       typeof transactionType !== "string" ||
       !validTypes.includes(
@@ -434,7 +430,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate the transaction quantity.
     if (
       typeof quantity !== "number" ||
       !Number.isFinite(quantity) ||
@@ -446,7 +441,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate optional transaction notes.
     if (
       notes !== undefined &&
       notes !== null &&
@@ -461,7 +455,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Execute the atomic stock transaction.
+    // Atomic transaction and archived-item protection
+    // are enforced inside the PostgreSQL RPC.
     const { data, error } = await supabaseAdmin.rpc(
       "create_stock_transaction",
       {
@@ -475,7 +470,6 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Handle database transaction errors.
     if (error) {
       console.error("Transaction RPC error:", {
         code: error.code,
@@ -484,6 +478,17 @@ export async function POST(request: NextRequest) {
         hint: error.hint,
       });
 
+      // Archived inventory item.
+      if (
+        error.message.includes("ITEM_ARCHIVED")
+      ) {
+        return jsonError(
+          "Barang sudah diarsipkan. Aktifkan kembali sebelum mencatat transaksi.",
+          409
+        );
+      }
+
+      // Insufficient inventory.
       if (
         error.message.includes(
           "INSUFFICIENT_STOCK"
@@ -495,10 +500,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Item does not exist.
       if (
-        error.message.includes(
-          "ITEM_NOT_FOUND"
-        )
+        error.message.includes("ITEM_NOT_FOUND")
       ) {
         return jsonError(
           "Barang tidak ditemukan.",
@@ -506,10 +510,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Invalid database transaction parameters.
       if (
-        error.message.includes(
-          "INVALID_QUANTITY"
-        ) ||
+        error.message.includes("INVALID_QUANTITY") ||
         error.message.includes(
           "INVALID_TRANSACTION_TYPE"
         )
@@ -526,7 +529,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Return the created transaction.
     return NextResponse.json(
       {
         success: true,

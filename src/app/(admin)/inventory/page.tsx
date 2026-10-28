@@ -12,6 +12,7 @@ import { getInventoryItems } from "@/lib/inventory";
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
 import { EditItemDialog } from "@/components/inventory/EditItemDialog";
 import { DeleteItemDialog } from "@/components/inventory/DeleteItemDialog";
+import { ArchiveItemDialog } from "@/components/inventory/ArchiveItemDialog";
 import StockTransactionDialog from "@/components/inventory/StockTransactionDialog";
 
 import {
@@ -33,9 +34,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export default async function InventoryPage() {
-  // Verify admin access before fetching data.
+type InventoryPageProps = {
+  searchParams: Promise<{
+    status?: string;
+  }>;
+};
+
+export default async function InventoryPage({
+  searchParams,
+}: InventoryPageProps) {
+  // Verify admin access.
   await requireAdmin();
+
+  // Read inventory filter from URL.
+  const { status } = await searchParams;
+
+  const activeFilter =
+    status === "archived" || status === "all"
+      ? status
+      : "active";
 
   // Fetch inventory data.
   let items: Awaited<ReturnType<typeof getInventoryItems>> = [];
@@ -48,20 +65,60 @@ export default async function InventoryPage() {
     errorMessage = "Data inventory belum dapat dimuat.";
   }
 
-  // Calculate inventory statistics.
-  const lowStock = items.filter(
+  // Active and archived inventory.
+  const activeItems = items.filter(
+    (item) => item.archived_at === null
+  );
+
+  const archivedItems = items.filter(
+    (item) => item.archived_at !== null
+  );
+
+  // Filter items displayed in the table.
+  const filteredItems = items.filter((item) => {
+    if (activeFilter === "active") {
+      return item.archived_at === null;
+    }
+
+    if (activeFilter === "archived") {
+      return item.archived_at !== null;
+    }
+
+    return true;
+  });
+
+  // Statistics only count active items.
+  const lowStock = activeItems.filter(
     (item) =>
       Number(item.current_stock) <=
       Number(item.minimum_stock)
   ).length;
 
-  // Prepare transaction dialog data.
-  const transactionItems = items.map((item) => ({
+  // Only active items can be selected for transactions.
+  const transactionItems = activeItems.map((item) => ({
     id: item.id,
     name: item.name,
     unit: item.unit,
     current_stock: Number(item.current_stock),
   }));
+
+  const filters = [
+    {
+      label: "Active",
+      value: "active",
+      count: activeItems.length,
+    },
+    {
+      label: "Archived",
+      value: "archived",
+      count: archivedItems.length,
+    },
+    {
+      label: "All",
+      value: "all",
+      count: items.length,
+    },
+  ];
 
   return (
     <div className="bg-background px-4 py-8 md:px-8">
@@ -112,7 +169,7 @@ export default async function InventoryPage() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-sm font-medium">
-                    Total Items
+                    Total Active Items
                   </CardTitle>
 
                   <Package className="h-5 w-5 text-muted-foreground" />
@@ -120,7 +177,7 @@ export default async function InventoryPage() {
 
                 <CardContent>
                   <p className="text-3xl font-bold">
-                    {items.length}
+                    {activeItems.length}
                   </p>
                 </CardContent>
               </Card>
@@ -144,12 +201,36 @@ export default async function InventoryPage() {
 
             {/* Inventory table */}
             <Card>
-              <CardHeader>
-                <CardTitle>All Inventory</CardTitle>
+              <CardHeader className="space-y-4">
+                <div>
+                  <CardTitle>Inventory Items</CardTitle>
 
-                <p className="text-sm text-muted-foreground">
-                  Current inventory data from Supabase.
-                </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    View active and archived inventory items.
+                  </p>
+                </div>
+
+                {/* Inventory status filters */}
+                <div className="flex flex-wrap gap-2">
+                  {filters.map((filter) => (
+                    <Button
+                      key={filter.value}
+                      asChild
+                      size="sm"
+                      variant={
+                        activeFilter === filter.value
+                          ? "default"
+                          : "outline"
+                      }
+                    >
+                      <Link
+                        href={`/inventory?status=${filter.value}`}
+                      >
+                        {filter.label} ({filter.count})
+                      </Link>
+                    </Button>
+                  ))}
+                </div>
               </CardHeader>
 
               <CardContent>
@@ -169,7 +250,7 @@ export default async function InventoryPage() {
                     </TableHeader>
 
                     <TableBody>
-                      {items.map((item) => {
+                      {filteredItems.map((item) => {
                         const currentStock = Number(
                           item.current_stock
                         );
@@ -178,11 +259,21 @@ export default async function InventoryPage() {
                           item.minimum_stock
                         );
 
+                        const isArchived =
+                          item.archived_at !== null;
+
                         const isLow =
                           currentStock <= minimumStock;
 
                         return (
-                          <TableRow key={item.id}>
+                          <TableRow
+                            key={item.id}
+                            className={
+                              isArchived
+                                ? "bg-muted/30"
+                                : undefined
+                            }
+                          >
                             <TableCell className="font-medium">
                               {item.name}
                             </TableCell>
@@ -202,35 +293,55 @@ export default async function InventoryPage() {
                             </TableCell>
 
                             <TableCell>
-                              <Badge
-                                variant={
-                                  isLow
-                                    ? "destructive"
-                                    : "secondary"
-                                }
-                              >
-                                {isLow
-                                  ? "Restock"
-                                  : "Sufficient"}
-                              </Badge>
+                              {isArchived ? (
+                                <Badge variant="outline">
+                                  Archived
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant={
+                                    isLow
+                                      ? "destructive"
+                                      : "secondary"
+                                  }
+                                >
+                                  {isLow
+                                    ? "Restock"
+                                    : "Sufficient"}
+                                </Badge>
+                              )}
                             </TableCell>
 
                             <TableCell>
-                              <div className="flex items-center justify-end gap-2">
-                                <EditItemDialog
-                                  item={{
-                                    id: item.id,
-                                    name: item.name,
-                                    category: item.category,
-                                    unit: item.unit,
-                                    minimum_stock: minimumStock,
-                                  }}
-                                />
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                {!isArchived && (
+                                  <>
+                                    <EditItemDialog
+                                      item={{
+                                        id: item.id,
+                                        name: item.name,
+                                        category: item.category,
+                                        unit: item.unit,
+                                        minimum_stock:
+                                          minimumStock,
+                                      }}
+                                    />
 
-                                <DeleteItemDialog
+                                    <DeleteItemDialog
+                                      item={{
+                                        id: item.id,
+                                        name: item.name,
+                                      }}
+                                    />
+                                  </>
+                                )}
+
+                                <ArchiveItemDialog
                                   item={{
                                     id: item.id,
                                     name: item.name,
+                                    archived_at:
+                                      item.archived_at,
                                   }}
                                 />
                               </div>
@@ -239,13 +350,17 @@ export default async function InventoryPage() {
                         );
                       })}
 
-                      {items.length === 0 && (
+                      {filteredItems.length === 0 && (
                         <TableRow>
                           <TableCell
                             colSpan={6}
                             className="py-10 text-center text-muted-foreground"
                           >
-                            No inventory items found.
+                            {activeFilter === "archived"
+                              ? "No archived items found."
+                              : activeFilter === "active"
+                                ? "No active inventory items found."
+                                : "No inventory items found."}
                           </TableCell>
                         </TableRow>
                       )}
