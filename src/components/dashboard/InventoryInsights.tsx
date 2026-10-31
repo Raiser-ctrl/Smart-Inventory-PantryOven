@@ -1,204 +1,124 @@
 
-import {
-  PackageCheck,
-  Trash2,
-  BarChart3,
-} from "lucide-react";
-
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-
-import { Badge } from "@/components/ui/badge";
-
 import type { ItemActivity } from "@/lib/inventory-analytics";
 
 type Props = {
-  topUsedMaterials: ItemActivity[];
-  wasteMonitoring: ItemActivity[];
+  topUsedMaterials?: ItemActivity[];
+  wasteMonitoring?: ItemActivity[];
   period: 7 | 30;
 };
 
-const numberFormatter = new Intl.NumberFormat("id-ID", {
+const formatter = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 2,
 });
 
-function formatNumber(value: number) {
-  return numberFormatter.format(value);
+function InsightList({
+  title,
+  description,
+  items = [],
+  empty,
+}: {
+  title: string;
+  description: string;
+  items?: ItemActivity[];
+  empty: string;
+}) {
+  const safeItems = Array.isArray(items) ? items : [];
+
+  return (
+    <section className="min-w-0 overflow-hidden rounded-xl border bg-card">
+      <div className="border-b px-4 py-4 sm:px-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-semibold">{title}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {description}
+            </p>
+          </div>
+
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {safeItems.length} items
+          </span>
+        </div>
+      </div>
+
+      {safeItems.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-muted-foreground sm:px-5">
+          {empty}
+        </p>
+      ) : (
+        <ol className="divide-y px-4 sm:px-5">
+          {safeItems.slice(0, 5).map((item, index) => (
+            <li
+              key={item.item_id}
+              className="flex min-w-0 items-center justify-between gap-3 py-3"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {index + 1}
+                </span>
+
+                <div className="min-w-0">
+                  <p
+                    className="truncate text-sm font-medium"
+                    title={item.name}
+                  >
+                    {item.name}
+                  </p>
+
+                  <p className="text-xs text-muted-foreground">
+                    {item.transactionCount} transactions
+                  </p>
+                </div>
+              </div>
+
+              <span className="max-w-[45%] shrink-0 text-right text-sm font-medium tabular-nums break-words">
+                {formatter.format(item.quantity)} {item.unit}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
 }
 
 export default function InventoryInsights({
-  topUsedMaterials,
-  wasteMonitoring,
+  topUsedMaterials = [],
+  wasteMonitoring = [],
   period,
 }: Props) {
-  // Show up to five items in each report.
-  const topMaterials = topUsedMaterials.slice(0, 5);
-  const topWaste = wasteMonitoring.slice(0, 5);
-
   return (
-    <section className="space-y-4">
+    <section
+      aria-labelledby="insights-heading"
+      className="min-w-0 space-y-4"
+    >
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">
-          Inventory Insights
+        <h2
+          id="insights-heading"
+          className="text-lg font-semibold tracking-tight"
+        >
+          Inventory insights
         </h2>
 
-        <p className="mt-1 text-sm text-muted-foreground">
-          Usage and waste monitoring for the last {period} days.
+        <p className="text-sm text-muted-foreground">
+          Usage and waste during the last {period} days.
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Top used materials */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="flex items-center gap-2">
-                <PackageCheck className="h-5 w-5 text-amber-600" />
-                Top Used Materials
-              </CardTitle>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <InsightList
+          title="Top used materials"
+          description="Ranked by usage frequency"
+          items={topUsedMaterials}
+          empty="No material usage recorded in this period."
+        />
 
-              <Badge variant="secondary">
-                {topUsedMaterials.length} Items
-              </Badge>
-            </div>
-
-            <p className="text-sm text-muted-foreground">
-              Ranked by usage transaction frequency.
-            </p>
-          </CardHeader>
-
-          <CardContent>
-            {topMaterials.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-                <BarChart3 className="h-8 w-8 text-muted-foreground" />
-
-                <p className="font-medium">
-                  No Material Usage
-                </p>
-
-                <p className="text-sm text-muted-foreground">
-                  No raw material usage recorded in this period.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {topMaterials.map((item, index) => (
-                  <div
-                    key={item.item_id}
-                    className="flex items-center justify-between gap-3 rounded-lg border p-3"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-sm font-semibold">
-                        {index + 1}
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {item.name}
-                        </p>
-
-                        <p className="text-xs text-muted-foreground">
-                          {item.transactionCount} usage transactions
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 text-right">
-                      <p className="font-semibold">
-                        {formatNumber(item.quantity)} {item.unit}
-                      </p>
-
-                      <p className="text-xs text-muted-foreground">
-                        Total used
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Waste monitoring */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="flex items-center gap-2">
-                <Trash2 className="h-5 w-5 text-red-600" />
-                Waste Monitoring
-              </CardTitle>
-
-              <Badge
-                variant={
-                  wasteMonitoring.length > 0
-                    ? "destructive"
-                    : "secondary"
-                }
-              >
-                {wasteMonitoring.length} Items
-              </Badge>
-            </div>
-
-            <p className="text-sm text-muted-foreground">
-              Items with recorded waste transactions.
-            </p>
-          </CardHeader>
-
-          <CardContent>
-            {topWaste.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-                <PackageCheck className="h-8 w-8 text-green-600" />
-
-                <p className="font-medium">
-                  No Waste Recorded
-                </p>
-
-                <p className="text-sm text-muted-foreground">
-                  No waste transactions recorded in this period.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {topWaste.map((item, index) => (
-                  <div
-                    key={item.item_id}
-                    className="flex items-center justify-between gap-3 rounded-lg border p-3"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-sm font-semibold text-red-600">
-                        {index + 1}
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {item.name}
-                        </p>
-
-                        <p className="text-xs text-muted-foreground">
-                          {item.transactionCount} waste transactions
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 text-right">
-                      <p className="font-semibold">
-                        {formatNumber(item.quantity)} {item.unit}
-                      </p>
-
-                      <p className="text-xs text-muted-foreground">
-                        Total wasted
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <InsightList
+          title="Waste monitoring"
+          description="Items with recorded waste transactions"
+          items={wasteMonitoring}
+          empty="No waste recorded in this period."
+        />
       </div>
     </section>
   );

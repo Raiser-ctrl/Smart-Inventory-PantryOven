@@ -1,43 +1,26 @@
 
 "use client";
 
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
-  Legend,
 } from "recharts";
 
-import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  Package,
-  Trash2,
-  AlertTriangle,
-  CheckCircle2,
-  BarChart3,
-} from "lucide-react";
-
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-
-import { Badge } from "@/components/ui/badge";
+import { useContainerWidth } from "@/hooks/useContainerWidth";
 
 type TransactionType =
   | "stock_in"
   | "stock_out"
   | "usage"
   | "waste";
+
+type ActivityFilter = TransactionType | "all";
 
 type DailyActivity = {
   date: string;
@@ -65,420 +48,552 @@ type AnalyticsData = {
 type Props = {
   data: AnalyticsData;
   period?: 7 | 30;
+  inventoryAvailable?: boolean;
 };
 
-const numberFormatter = new Intl.NumberFormat("id-ID", {
+type ChartEntry = DailyActivity & {
+  label: string;
+  rangeLabel?: string;
+};
+
+const formatter = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 2,
 });
 
-const chartColors = {
-  stock_in: "#16a34a",
-  stock_out: "#2563eb",
-  usage: "#f59e0b",
-  waste: "#ef4444",
-};
+const DAY_MS = 86_400_000;
 
-// Format numbers using Indonesian notation.
-function formatNumber(value: number) {
-  return numberFormatter.format(value);
-}
+const activityTypes: {
+  key: TransactionType;
+  label: string;
+  color: string;
+}[] = [
+  {
+    key: "stock_in",
+    label: "Stock in",
+    color: "#4d9270",
+  },
+  {
+    key: "stock_out",
+    label: "Stock out",
+    color: "#6588b3",
+  },
+  {
+    key: "usage",
+    label: "Usage",
+    color: "#c69a4b",
+  },
+  {
+    key: "waste",
+    label: "Waste",
+    color: "#c46c68",
+  },
+];
 
-// Format calendar dates without timezone shifts.
-function formatChartDate(value: string) {
+function formatDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
-
-  const date = new Date(
-    Date.UTC(year, month - 1, day, 12)
-  );
 
   return new Intl.DateTimeFormat("id-ID", {
     day: "numeric",
     month: "short",
     timeZone: "UTC",
-  }).format(date);
+  }).format(
+    new Date(Date.UTC(year, month - 1, day, 12))
+  );
+}
+
+function createWeeklyData(
+  daily: DailyActivity[]
+): ChartEntry[] {
+  const sorted = [...daily].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+
+  if (sorted.length === 0) {
+    return [];
+  }
+
+  const firstDate = new Date(
+    `${sorted[0].date}T00:00:00Z`
+  );
+
+  const lastDate = new Date(
+    `${sorted[sorted.length - 1].date}T00:00:00Z`
+  );
+
+  const groups = new Map<
+    number,
+    {
+      start: string;
+      end: string;
+      totals: Record<TransactionType, number>;
+    }
+  >();
+
+  for (const entry of sorted) {
+    const date = new Date(
+      `${entry.date}T00:00:00Z`
+    );
+
+    const daysSinceStart = Math.floor(
+      (date.getTime() - firstDate.getTime()) / DAY_MS
+    );
+
+    const groupIndex = Math.floor(
+      daysSinceStart / 7
+    );
+
+    const groupStart = new Date(
+      firstDate.getTime() + groupIndex * 7 * DAY_MS
+    );
+
+    const groupEnd = new Date(
+      Math.min(
+        groupStart.getTime() + 6 * DAY_MS,
+        lastDate.getTime()
+      )
+    );
+
+    const start = groupStart.toISOString().slice(0, 10);
+    const end = groupEnd.toISOString().slice(0, 10);
+
+    if (!groups.has(groupIndex)) {
+      groups.set(groupIndex, {
+        start,
+        end,
+        totals: {
+          stock_in: 0,
+          stock_out: 0,
+          usage: 0,
+          waste: 0,
+        },
+      });
+    }
+
+    const group = groups.get(groupIndex)!;
+
+    for (const type of activityTypes) {
+      group.totals[type.key] += Number(
+        entry[type.key] ?? 0
+      );
+    }
+  }
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, group]) => ({
+      date: group.start,
+      label: `W${index + 1}`,
+      rangeLabel: `${formatDate(
+        group.start
+      )} – ${formatDate(group.end)}`,
+      ...group.totals,
+    }));
+}
+
+function getEntryLabel(entry: ChartEntry) {
+  return entry.rangeLabel ?? formatDate(entry.date);
+}
+
+function ActivityChart({
+  data,
+  selected,
+  mobile,
+  width,
+  period,
+  onSelectEntry,
+}: {
+  data: ChartEntry[];
+  selected: ActivityFilter;
+  mobile: boolean;
+  width: number;
+  period: 7 | 30;
+  onSelectEntry: (entry: ChartEntry) => void;
+}) {
+  const visibleTypes = activityTypes.filter(
+    (type) =>
+      selected === "all" || type.key === selected
+  );
+
+  const groupedWeekly = period === 30;
+
+  const chartHeight = mobile ? 220 : 290;
+
+  const maxBarSize =
+    selected === "all"
+      ? groupedWeekly
+        ? mobile
+          ? 16
+          : 26
+        : mobile
+          ? 12
+          : 22
+      : groupedWeekly
+        ? mobile
+          ? 42
+          : 64
+        : mobile
+          ? 32
+          : 48;
+
+  return (
+    <BarChart
+      width={width}
+      height={chartHeight}
+      data={data}
+      accessibilityLayer
+      margin={{
+        top: 14,
+        right: mobile ? 4 : 12,
+        left: mobile ? -22 : -12,
+        bottom: 4,
+      }}
+      barCategoryGap={
+        groupedWeekly ? "25%" : "30%"
+      }
+      barGap={3}
+    onClick={(state) => {
+  const index = state?.activeTooltipIndex;
+
+  if (index === undefined || index === null) {
+    return;
+  }
+
+  const selectedIndex = Number(index);
+
+  if (
+    !Number.isInteger(selectedIndex) ||
+    selectedIndex < 0 ||
+    selectedIndex >= data.length
+  ) {
+    return;
+  }
+
+  onSelectEntry(data[selectedIndex]);
+}}
+    >
+      <CartesianGrid
+        stroke="currentColor"
+        strokeOpacity={0.08}
+        vertical={false}
+      />
+
+      <XAxis
+        dataKey="label"
+        axisLine={false}
+        tickLine={false}
+        tickMargin={10}
+        interval={0}
+        minTickGap={8}
+        tick={{
+          fontSize: mobile ? 10 : 11,
+          fill: "var(--muted-foreground)",
+        }}
+      />
+
+      <YAxis
+        allowDecimals={false}
+        axisLine={false}
+        tickLine={false}
+        width={36}
+        tick={{
+          fontSize: mobile ? 10 : 11,
+          fill: "var(--muted-foreground)",
+        }}
+      />
+
+      <Tooltip
+        cursor={{
+          fill: "var(--muted)",
+          fillOpacity: 0.35,
+        }}
+        labelFormatter={(label, payload) => {
+          const entry = payload?.[0]
+            ?.payload as ChartEntry | undefined;
+
+          return entry
+            ? getEntryLabel(entry)
+            : String(label);
+        }}
+        formatter={(value, name) => [
+          `${formatter.format(
+            Number(value ?? 0)
+          )} transactions`,
+          String(name),
+        ]}
+        wrapperStyle={{
+          pointerEvents: "none",
+          maxWidth: "min(240px, 80vw)",
+          zIndex: 10,
+        }}
+        contentStyle={{
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          backgroundColor: "var(--card)",
+          color: "var(--foreground)",
+          fontSize: 12,
+          boxShadow:
+            "0 8px 24px rgba(0,0,0,0.08)",
+        }}
+        labelStyle={{
+          color: "var(--foreground)",
+          fontWeight: 600,
+        }}
+      />
+
+      {visibleTypes.map((type) => (
+        <Bar
+          key={type.key}
+          dataKey={type.key}
+          name={type.label}
+          fill={type.color}
+          maxBarSize={maxBarSize}
+          radius={[4, 4, 0, 0]}
+          isAnimationActive={false}
+        />
+      ))}
+    </BarChart>
+  );
 }
 
 export default function InventoryAnalytics({
   data,
   period = 7,
 }: Props) {
-  // Prepare transaction summary cards.
-  const stats = [
-    {
-      key: "stock_in",
-      label: "Stock In",
-      value: data.totals.stock_in,
-      icon: ArrowDownToLine,
-      color: "text-green-600",
-      background: "bg-green-500/10",
-    },
-    {
-      key: "stock_out",
-      label: "Stock Out",
-      value: data.totals.stock_out,
-      icon: ArrowUpFromLine,
-      color: "text-blue-600",
-      background: "bg-blue-500/10",
-    },
-    {
-      key: "usage",
-      label: "Usage",
-      value: data.totals.usage,
-      icon: Package,
-      color: "text-amber-600",
-      background: "bg-amber-500/10",
-    },
-    {
-      key: "waste",
-      label: "Waste",
-      value: data.totals.waste,
-      icon: Trash2,
-      color: "text-red-600",
-      background: "bg-red-500/10",
-    },
-  ] as const;
+  const [selected, setSelected] =
+    useState<ActivityFilter>("all");
 
-  // Prepare daily chart data.
+  const [selectedEntry, setSelectedEntry] =
+    useState<ChartEntry | null>(null);
+
+  const filterId = useId();
+  const headingId = useId();
+
+  const {
+    ref: chartContainerRef,
+    width: chartWidth,
+  } = useContainerWidth<HTMLDivElement>();
+
+  const isMobile =
+    chartWidth > 0 && chartWidth < 640;
+
   const chartData = useMemo(
     () =>
       data.daily.map((entry) => ({
         ...entry,
-        label: formatChartDate(entry.date),
+        label: formatDate(entry.date),
       })),
     [data.daily]
   );
 
-  // Calculate total transaction count.
-  const totalTransactions = Object.values(
-    data.totals
-  ).reduce((sum, value) => sum + value, 0);
-
-  // Check whether there is actual transaction activity.
-  const hasTransactions = totalTransactions > 0;
-
-  // Sort items by stock shortage.
-  const lowStockItems = useMemo(
+  const displayedData = useMemo(
     () =>
-      [...data.lowStock].sort((a, b) => {
-        const shortageA =
-          a.current_stock - a.minimum_stock;
-
-        const shortageB =
-          b.current_stock - b.minimum_stock;
-
-        return shortageA - shortageB;
-      }),
-    [data.lowStock]
+      period === 30
+        ? createWeeklyData(data.daily)
+        : chartData,
+    [data.daily, chartData, period]
   );
 
+  const total = activityTypes.reduce(
+    (sum, type) =>
+      sum + Number(data.totals[type.key] ?? 0),
+    0
+  );
+
+  const selectedTotal =
+    selected === "all"
+      ? total
+      : Number(data.totals[selected] ?? 0);
+
+  const selectedLabel =
+    selected === "all"
+      ? "Total transactions"
+      : activityTypes.find(
+          (type) => type.key === selected
+        )?.label ?? "Transactions";
+
+  // Resolve the selected entry against the current
+  // dataset so period changes cannot show stale data.
+  const activeEntry = selectedEntry
+    ? displayedData.find(
+        (entry) =>
+          entry.date === selectedEntry.date &&
+          entry.label === selectedEntry.label
+      ) ?? null
+    : null;
+
+  const handleSelectEntry = (entry: ChartEntry) => {
+    setSelectedEntry((previous) => {
+      if (
+        previous?.date === entry.date &&
+        previous?.label === entry.label
+      ) {
+        return null;
+      }
+
+      return entry;
+    });
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Analytics summary */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">
-            Inventory Overview
-          </h2>
+    <section
+      aria-labelledby={headingId}
+      className="min-w-0 overflow-hidden rounded-xl border bg-card p-3.5 sm:p-5"
+    >
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3
+          id={headingId}
+          className="text-sm font-semibold sm:text-base"
+        >
+          Stock activity
+        </h3>
 
-          <p className="text-sm text-muted-foreground">
-            Monitor inventory activities and stock levels.
-          </p>
-        </div>
+        <label
+          htmlFor={filterId}
+          className="sr-only"
+        >
+          Filter transaction type
+        </label>
 
-        <Badge variant="secondary" className="w-fit">
-          Last {period} Days
-        </Badge>
-      </div>
+        <select
+          id={filterId}
+          value={selected}
+          onChange={(event) => {
+            setSelected(
+              event.target.value as ActivityFilter
+            );
+            setSelectedEntry(null);
+          }}
+          className="min-h-11 max-w-full rounded-md border bg-background px-3 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
+        >
+          <option value="all">
+            All activity
+          </option>
 
-      {/* Transaction statistics */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-
-          return (
-            <Card key={stat.key}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    {stat.label}
-                  </p>
-
-                  <div
-                    className={`rounded-lg p-2.5 ${stat.background}`}
-                  >
-                    <Icon
-                      className={`h-5 w-5 ${stat.color}`}
-                    />
-                  </div>
-                </div>
-
-                <p className="mt-4 text-3xl font-bold tracking-tight">
-                  {formatNumber(stat.value)}
-                </p>
-
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Transactions in last {period} days
-                </p>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Stock activity chart */}
-      <Card>
-        <CardHeader className="space-y-2">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle>Stock Activity</CardTitle>
-
-              <p className="mt-1 text-sm text-muted-foreground">
-                Daily transaction counts for the last{" "}
-                {period} days.
-              </p>
-            </div>
-
-            <Badge variant="outline" className="w-fit">
-              {formatNumber(totalTransactions)} Transactions
-            </Badge>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          {!hasTransactions ? (
-            <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center">
-              <div className="rounded-full bg-muted p-3">
-                <BarChart3 className="h-7 w-7 text-muted-foreground" />
-              </div>
-
-              <p className="font-medium">
-                No Transaction Activity
-              </p>
-
-              <p className="max-w-sm text-sm text-muted-foreground">
-                No stock transactions were recorded during
-                the selected period.
-              </p>
-            </div>
-          ) : (
-            <div className="h-[300px] w-full sm:h-[360px]">
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-              >
-                <BarChart
-                  data={chartData}
-                  margin={{
-                    top: 10,
-                    right: 5,
-                    left: -20,
-                    bottom: 5,
-                  }}
-                  barGap={2}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke="currentColor"
-                    strokeOpacity={0.1}
-                  />
-
-                  <XAxis
-                    dataKey="label"
-                    tickLine={false}
-                    axisLine={false}
-                    interval={period === 30 ? 4 : 0}
-                    minTickGap={12}
-                    tick={{
-                      fontSize: 11,
-                      fill: "currentColor",
-                    }}
-                    tickMargin={10}
-                  />
-
-                  <YAxis
-                    allowDecimals={false}
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{
-                      fontSize: 11,
-                      fill: "currentColor",
-                    }}
-                  />
-
-                  <Tooltip
-                    formatter={(value, name) => [
-                      `${formatNumber(
-                        Number(value ?? 0)
-                      )} transactions`,
-                      String(name),
-                    ]}
-                    contentStyle={{
-                      borderRadius: 10,
-                      border: "1px solid var(--border)",
-                      color: "var(--foreground)",
-                      backgroundColor: "var(--card)",
-                    }}
-                    labelStyle={{
-                      color: "var(--foreground)",
-                    }}
-                  />
-
-                  <Legend
-                    wrapperStyle={{
-                      fontSize: 12,
-                      paddingTop: 12,
-                    }}
-                  />
-
-                  <Bar
-                    dataKey="stock_in"
-                    name="Stock In"
-                    fill={chartColors.stock_in}
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={24}
-                  />
-
-                  <Bar
-                    dataKey="stock_out"
-                    name="Stock Out"
-                    fill={chartColors.stock_out}
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={24}
-                  />
-
-                  <Bar
-                    dataKey="usage"
-                    name="Usage"
-                    fill={chartColors.usage}
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={24}
-                  />
-
-                  <Bar
-                    dataKey="waste"
-                    name="Waste"
-                    fill={chartColors.waste}
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={24}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Low stock alerts */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Low Stock Alerts
-            </CardTitle>
-
-            <Badge
-              variant={
-                data.lowStockCount > 0
-                  ? "destructive"
-                  : "secondary"
-              }
+          {activityTypes.map((type) => (
+            <option
+              key={type.key}
+              value={type.key}
             >
-              {data.lowStockCount} Items
-            </Badge>
+              {type.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Activity total */}
+      <div className="mt-3 border-b pb-3">
+        <p className="text-xs text-muted-foreground">
+          {selectedLabel}
+        </p>
+
+        <p className="mt-1 text-2xl font-semibold tabular-nums">
+          {formatter.format(selectedTotal)}
+        </p>
+      </div>
+
+      {/* Responsive chart */}
+      <div
+        ref={chartContainerRef}
+        className="mt-3 min-h-[220px] w-full min-w-0 overflow-hidden [touch-action:pan-y] sm:min-h-[290px]"
+      >
+        {chartWidth > 0 && displayedData.length > 0 ? (
+          <ActivityChart
+            data={displayedData}
+            period={period}
+            selected={selected}
+            mobile={isMobile}
+            width={chartWidth}
+            onSelectEntry={handleSelectEntry}
+          />
+        ) : (
+          <div className="flex h-[220px] items-center justify-center text-center text-sm text-muted-foreground sm:h-[290px]">
+            {chartWidth === 0
+              ? "Preparing chart..."
+              : "No activity data available."}
+          </div>
+        )}
+      </div>
+
+      {displayedData.length > 0 && (
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
+          {period === 30
+            ? "Grouped by week · "
+            : ""}
+          Tap or hover to view details
+        </p>
+      )}
+
+      {/* Persistent details for touch devices */}
+      {activeEntry && (
+        <div
+          className="mt-3 rounded-lg border bg-muted/30 p-3"
+          aria-live="polite"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">
+                Selected activity
+              </p>
+
+              <p className="mt-0.5 text-sm font-semibold">
+                {getEntryLabel(activeEntry)}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSelectedEntry(null)}
+              className="min-h-10 shrink-0 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Close selected activity details"
+            >
+              Close
+            </button>
           </div>
 
-          <p className="text-sm text-muted-foreground">
-            Items at or below their minimum stock level.
-          </p>
-        </CardHeader>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {activityTypes
+              .filter(
+                (type) =>
+                  selected === "all" ||
+                  selected === type.key
+              )
+              .map((type) => (
+                <div
+                  key={type.key}
+                  className="min-w-0 rounded-md border bg-card p-2.5"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="size-2 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor: type.color,
+                      }}
+                    />
 
-        <CardContent>
-          {lowStockItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-              <div className="rounded-full bg-green-500/10 p-3">
-                <CheckCircle2 className="h-7 w-7 text-green-600" />
-              </div>
-
-              <p className="font-medium">
-                All Stock Levels Are Healthy
-              </p>
-
-              <p className="text-sm text-muted-foreground">
-                No inventory items require restocking.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {lowStockItems.map((item) => {
-                const isOutOfStock =
-                  item.current_stock <= 0;
-
-                return (
-                  <div
-                    key={item.id}
-                    className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={
-                          isOutOfStock
-                            ? "rounded-lg bg-red-500/10 p-2"
-                            : "rounded-lg bg-amber-500/10 p-2"
-                        }
-                      >
-                        <Package
-                          className={
-                            isOutOfStock
-                              ? "h-5 w-5 text-red-600"
-                              : "h-5 w-5 text-amber-600"
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <p className="font-medium">
-                          {item.name}
-                        </p>
-
-                        <Badge
-                          variant={
-                            isOutOfStock
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
-                          {isOutOfStock
-                            ? "Out of Stock"
-                            : "Low Stock"}
-                        </Badge>
-                      </div>
-                    </div>
-
-                    <div className="text-left sm:text-right">
-                      <p className="font-semibold">
-                        {formatNumber(
-                          item.current_stock
-                        )}{" "}
-                        {item.unit}
-                      </p>
-
-                      <p className="text-xs text-muted-foreground">
-                        Minimum:{" "}
-                        {formatNumber(
-                          item.minimum_stock
-                        )}{" "}
-                        {item.unit}
-                      </p>
-                    </div>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {type.label}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+
+                  <p className="mt-1 text-base font-semibold tabular-nums">
+                    {formatter.format(
+                      Number(activeEntry[type.key] ?? 0)
+                    )}
+                  </p>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {selectedTotal === 0 && total > 0 && (
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          No {selectedLabel.toLowerCase()} recorded
+          in this period.
+        </p>
+      )}
+    </section>
   );
 }

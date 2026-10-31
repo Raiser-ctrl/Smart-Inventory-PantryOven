@@ -32,6 +32,14 @@ type EditableItem = {
   minimum_stock: number;
 };
 
+type Props = {
+  item: EditableItem;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
+  onSuccess?: () => void;
+};
+
 type ApiResponse = {
   success: boolean;
   message?: string;
@@ -39,12 +47,17 @@ type ApiResponse = {
 
 export function EditItemDialog({
   item,
-}: {
-  item: EditableItem;
-}) {
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
+  onSuccess,
+}: Props) {
   const router = useRouter();
 
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+
+  const open = controlledOpen ?? internalOpen;
+
   const [name, setName] = useState(item.name);
   const [category, setCategory] = useState(item.category);
   const [unit, setUnit] = useState(item.unit);
@@ -66,14 +79,24 @@ export function EditItemDialog({
   function handleOpenChange(nextOpen: boolean) {
     if (isSubmitting) return;
 
-    if (nextOpen) resetForm();
+    if (nextOpen) {
+      resetForm();
+    }
 
-    setOpen(nextOpen);
+    if (onOpenChange) {
+      onOpenChange(nextOpen);
+    } else {
+      setInternalOpen(nextOpen);
+    }
 
-    if (!nextOpen) resetForm();
+    if (!nextOpen) {
+      setError("");
+    }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
     if (isSubmitting) return;
@@ -84,12 +107,16 @@ export function EditItemDialog({
     const minimum = Number(minimumStock);
 
     if (!trimmedName || trimmedName.length > 150) {
-      setError("Nama barang wajib diisi, maksimal 150 karakter.");
+      setError(
+        "Nama barang wajib diisi, maksimal 150 karakter."
+      );
       return;
     }
 
     if (
-      !["raw_material", "finished_product"].includes(category) ||
+      !["raw_material", "finished_product"].includes(
+        category
+      ) ||
       !["kg", "pcs", "liter", "gram"].includes(unit)
     ) {
       setError("Kategori atau satuan tidak valid.");
@@ -101,7 +128,9 @@ export function EditItemDialog({
       !Number.isFinite(minimum) ||
       minimum < 0
     ) {
-      setError("Minimum stok harus berupa angka tidak negatif.");
+      setError(
+        "Minimum stok harus berupa angka tidak negatif."
+      );
       return;
     }
 
@@ -133,7 +162,8 @@ export function EditItemDialog({
         );
       }
 
-      setOpen(false);
+      handleOpenChange(false);
+      onSuccess?.();
       router.refresh();
     } catch (error) {
       setError(
@@ -148,12 +178,14 @@ export function EditItemDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Pencil className="mr-2 h-4 w-4" />
-          Edit
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm">
+            <Pencil className="mr-2 size-4" />
+            Edit
+          </Button>
+        </DialogTrigger>
+      )}
 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -172,7 +204,9 @@ export function EditItemDialog({
             <Input
               id={`edit-name-${item.id}`}
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) =>
+                setName(event.target.value)
+              }
               disabled={isSubmitting}
               maxLength={150}
               required
@@ -221,10 +255,18 @@ export function EditItemDialog({
                 <SelectValue placeholder="Select unit" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="kg">Kilogram (kg)</SelectItem>
-                <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                <SelectItem value="liter">Liter</SelectItem>
-                <SelectItem value="gram">Gram</SelectItem>
+                <SelectItem value="kg">
+                  Kilogram (kg)
+                </SelectItem>
+                <SelectItem value="pcs">
+                  Pieces (pcs)
+                </SelectItem>
+                <SelectItem value="liter">
+                  Liter
+                </SelectItem>
+                <SelectItem value="gram">
+                  Gram
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -248,7 +290,10 @@ export function EditItemDialog({
           </div>
 
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p
+              role="alert"
+              className="text-sm text-destructive"
+            >
               {error}
             </p>
           )}
@@ -266,7 +311,7 @@ export function EditItemDialog({
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 size-4 animate-spin" />
                   Saving...
                 </>
               ) : (

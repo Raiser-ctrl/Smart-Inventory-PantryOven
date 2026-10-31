@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
 import {
   ArrowLeftRight,
   ChefHat,
@@ -45,12 +46,18 @@ export function AppSidebar({
 
   return (
     <aside
-      className={`flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ${
+      className={`flex h-full min-h-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ${
         collapsed ? "w-16" : "w-64"
       }`}
     >
       {/* Branding */}
-      <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
+      <div
+        className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${
+          collapsed
+            ? "justify-center px-2"
+            : "justify-between px-4"
+        }`}
+      >
         <Link
           href="/dashboard"
           onClick={onNavigate}
@@ -72,7 +79,7 @@ export function AppSidebar({
           <button
             type="button"
             onClick={onToggle}
-            className="rounded-lg p-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             aria-label="Collapse sidebar"
             title="Collapse sidebar"
           >
@@ -81,13 +88,13 @@ export function AppSidebar({
         )}
       </div>
 
-      {/* Expand button */}
+      {/* Expand sidebar */}
       {collapsed && (
-        <div className="flex justify-center pt-3">
+        <div className="flex shrink-0 justify-center pt-3">
           <button
             type="button"
             onClick={onToggle}
-            className="rounded-lg p-2 hover:bg-sidebar-accent"
+            className="flex size-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             aria-label="Expand sidebar"
             title="Expand sidebar"
           >
@@ -96,17 +103,11 @@ export function AppSidebar({
         </div>
       )}
 
-      {/* Navigation */}
+      {/* Main navigation */}
       <nav
-        className="flex-1 space-y-1 overflow-y-auto px-3 py-5"
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4"
         aria-label="Main navigation"
       >
-        {!collapsed && (
-          <p className="mb-3 px-3 text-xs font-medium uppercase tracking-wider text-sidebar-foreground/50">
-            Workspace
-          </p>
-        )}
-
         {navigationItems.map((item) => {
           const Icon = item.icon;
 
@@ -119,37 +120,33 @@ export function AppSidebar({
               key={item.href}
               href={item.href}
               onClick={onNavigate}
-              aria-current={isActive ? "page" : undefined}
-              title={collapsed ? item.title : undefined}
-              className={`flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors ${
+              aria-current={
+                isActive ? "page" : undefined
+              }
+              title={
+                collapsed ? item.title : undefined
+              }
+              className={`flex min-h-11 items-center gap-3 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring ${
                 isActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              } ${collapsed ? "justify-center px-0" : ""}`}
+              } ${
+                collapsed
+                  ? "justify-center px-0"
+                  : "px-3"
+              }`}
             >
               <Icon className="size-5 shrink-0" />
 
-              {!collapsed && <span>{item.title}</span>}
+              {!collapsed && (
+                <span className="truncate">
+                  {item.title}
+                </span>
+              )}
             </Link>
           );
         })}
       </nav>
-
-      {/* Footer */}
-      <div className="border-t border-sidebar-border p-4">
-        {!collapsed ? (
-          <div className="space-y-1">
-            <p className="text-xs font-medium">PantryOven</p>
-            <p className="text-xs text-sidebar-foreground/50">
-              Smart Inventory System
-            </p>
-          </div>
-        ) : (
-          <div className="flex justify-center">
-            <ChefHat className="size-5 text-sidebar-foreground/50" />
-          </div>
-        )}
-      </div>
     </aside>
   );
 }

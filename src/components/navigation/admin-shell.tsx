@@ -2,96 +2,113 @@
 "use client";
 
 import { useState } from "react";
-import { usePathname } from "next/navigation";
 import { AppSidebar } from "./app-sidebar";
-import { Menu, X, ChefHat, CircleUserRound } from "lucide-react";
+
+import {
+  Menu,
+  X,
+  ChefHat,
+  CircleUserRound,
+} from "lucide-react";
 
 type AdminShellProps = {
   children: React.ReactNode;
 };
 
-const pageTitles: Record<string, string> = {
-  "/dashboard": "Dashboard",
-  "/inventory": "Inventory",
-  "/transactions": "Transactions",
-};
-
-export function AdminShell({ children }: AdminShellProps) {
-  const pathname = usePathname();
+export function AdminShell({
+  children,
+}: AdminShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const currentPage =
-    Object.entries(pageTitles).find(
-      ([path]) => pathname === path || pathname.startsWith(`${path}/`)
-    )?.[1] ?? "Workspace";
+  function closeMobileNavigation() {
+    setMobileOpen(false);
+  }
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-dvh min-w-0 bg-background">
       {/* Desktop sidebar */}
-      <div className="sticky top-0 hidden h-screen shrink-0 md:block">
+      <div className="sticky top-0 hidden h-dvh shrink-0 md:block">
         <AppSidebar
           collapsed={collapsed}
-          onToggle={() => setCollapsed((value) => !value)}
+          onToggle={() =>
+            setCollapsed((value) => !value)
+          }
         />
       </div>
 
-      {/* Mobile overlay */}
+      {/* Mobile navigation */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
+          {/* Backdrop */}
           <button
             type="button"
             aria-label="Close navigation"
             className="absolute inset-0 bg-black/50"
-            onClick={() => setMobileOpen(false)}
+            onClick={closeMobileNavigation}
           />
 
-          <div className="absolute inset-y-0 left-0 w-64 max-w-[85vw] shadow-xl">
+          {/* Sidebar panel */}
+          <div className="absolute inset-y-0 left-0 w-64 max-w-[85vw] bg-background shadow-xl">
             <AppSidebar
               collapsed={false}
-              onToggle={() => setMobileOpen(false)}
-              onNavigate={() => setMobileOpen(false)}
+              onToggle={closeMobileNavigation}
+              onNavigate={closeMobileNavigation}
             />
           </div>
+
+          {/* Close button */}
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            onClick={closeMobileNavigation}
+            className="absolute right-3 top-3 flex size-9 items-center justify-center rounded-lg border bg-background shadow-sm transition-colors hover:bg-accent"
+          >
+            <X className="size-5" />
+          </button>
         </div>
       )}
 
       {/* Main content */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Topbar */}
-        <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b bg-background/95 px-4 backdrop-blur md:px-6">
-          <div className="flex items-center gap-3">
+        {/* Minimal topbar */}
+        <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b bg-background/95 px-4 backdrop-blur md:h-16 md:px-6">
+          {/* Left section */}
+          <div className="flex min-w-0 items-center gap-3">
+            {/* Mobile menu button */}
             <button
               type="button"
-              className="rounded-lg p-2 hover:bg-accent md:hidden"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-accent md:hidden"
               aria-label="Open navigation"
+              aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}
             >
               <Menu className="size-5" />
             </button>
 
-            <div className="flex items-center gap-2 md:hidden">
-              <ChefHat className="size-5" />
-            </div>
+            {/* Mobile branding */}
+            <div className="flex min-w-0 items-center gap-2 md:hidden">
+              <ChefHat className="size-5 shrink-0" />
 
-            <h1 className="text-base font-semibold">{currentPage}</h1>
+              <span className="truncate text-sm font-semibold tracking-tight">
+                PantryOven
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm text-muted-foreground sm:inline">
-              Admin Workspace
-            </span>
-
-            <div
-              className="flex size-9 items-center justify-center rounded-full border bg-muted"
-              aria-label="Admin account"
-            >
-              <CircleUserRound className="size-5 text-muted-foreground" />
-            </div>
+          {/* Account indicator */}
+          <div
+            className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-muted"
+            aria-label="Admin account"
+          >
+            <CircleUserRound className="size-5 text-muted-foreground" />
           </div>
         </header>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        {/* Page content */}
+        <main className="min-w-0 flex-1">
+          {children}
+        </main>
       </div>
     </div>
   );
