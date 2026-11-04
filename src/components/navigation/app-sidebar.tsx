@@ -11,9 +11,18 @@ import {
   Package,
   PanelLeftClose,
   PanelLeftOpen,
+  UsersRound,
 } from "lucide-react";
 
-const navigationItems = [
+type UserRole = "admin" | "staff";
+
+type NavigationItem = {
+  title: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+};
+
+const navigationItems: NavigationItem[] = [
   {
     title: "Dashboard",
     href: "/dashboard",
@@ -31,18 +40,33 @@ const navigationItems = [
   },
 ];
 
+const adminNavigationItems: NavigationItem[] = [
+  {
+    title: "User Management",
+    href: "/admin/users",
+    icon: UsersRound,
+  },
+];
+
 type AppSidebarProps = {
   collapsed: boolean;
   onToggle: () => void;
   onNavigate?: () => void;
+  role?: UserRole;
 };
 
 export function AppSidebar({
   collapsed,
   onToggle,
   onNavigate,
+  role = "staff",
 }: AppSidebarProps) {
   const pathname = usePathname();
+
+  const items =
+    role === "admin"
+      ? [...navigationItems, ...adminNavigationItems]
+      : navigationItems;
 
   return (
     <aside
@@ -63,9 +87,13 @@ export function AppSidebar({
           onClick={onNavigate}
           className="flex min-w-0 items-center gap-3"
           aria-label="PantryOven Dashboard"
+          title={collapsed ? "PantryOven" : undefined}
         >
           <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <ChefHat className="size-5" />
+            <ChefHat
+              aria-hidden="true"
+              className="size-5"
+            />
           </div>
 
           {!collapsed && (
@@ -79,11 +107,14 @@ export function AppSidebar({
           <button
             type="button"
             onClick={onToggle}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             aria-label="Collapse sidebar"
             title="Collapse sidebar"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           >
-            <PanelLeftClose className="size-4" />
+            <PanelLeftClose
+              aria-hidden="true"
+              className="size-4"
+            />
           </button>
         )}
       </div>
@@ -94,11 +125,14 @@ export function AppSidebar({
           <button
             type="button"
             onClick={onToggle}
-            className="flex size-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             aria-label="Expand sidebar"
             title="Expand sidebar"
+            className="flex size-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           >
-            <PanelLeftOpen className="size-4" />
+            <PanelLeftOpen
+              aria-hidden="true"
+              className="size-4"
+            />
           </button>
         </div>
       )}
@@ -108,7 +142,7 @@ export function AppSidebar({
         className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4"
         aria-label="Main navigation"
       >
-        {navigationItems.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
 
           const isActive =
@@ -120,12 +154,8 @@ export function AppSidebar({
               key={item.href}
               href={item.href}
               onClick={onNavigate}
-              aria-current={
-                isActive ? "page" : undefined
-              }
-              title={
-                collapsed ? item.title : undefined
-              }
+              aria-current={isActive ? "page" : undefined}
+              title={collapsed ? item.title : undefined}
               className={`flex min-h-11 items-center gap-3 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring ${
                 isActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -136,7 +166,10 @@ export function AppSidebar({
                   : "px-3"
               }`}
             >
-              <Icon className="size-5 shrink-0" />
+              <Icon
+                aria-hidden="true"
+                className="size-5 shrink-0"
+              />
 
               {!collapsed && (
                 <span className="truncate">
@@ -147,6 +180,31 @@ export function AppSidebar({
           );
         })}
       </nav>
+
+      {/* Sidebar footer */}
+      <div
+        className={`shrink-0 border-t border-sidebar-border ${
+          collapsed ? "px-2 py-3" : "px-4 py-4"
+        }`}
+      >
+        {collapsed ? (
+          <div
+            className="mx-auto size-1.5 rounded-full bg-[#8a9c79]"
+            aria-hidden="true"
+          />
+        ) : (
+          <div className="flex items-center gap-2">
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-[#8a9c79]"
+              aria-hidden="true"
+            />
+
+            <p className="truncate text-xs text-sidebar-foreground/50">
+              PantryOven Workspace
+            </p>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

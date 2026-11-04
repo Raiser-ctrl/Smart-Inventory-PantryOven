@@ -7,87 +7,108 @@ import { performance } from "node:perf_hooks";
 
 import { createClient } from "@/lib/supabase/server";
 
+export type UserRole = "admin" | "staff";
+
+export type AccountStatus =
+  | "pending"
+  | "active"
+  | "suspended";
+
+export type UserProfile = {
+  id: string;
+  full_name: string;
+  avatar_path: string | null;
+  role: UserRole;
+  status: AccountStatus;
+  created_at: string;
+  updated_at: string;
+};
+
 const shouldMeasurePerformance =
   process.env.NODE_ENV === "development" ||
   process.env.PERF_DEBUG === "true";
 
-export const requireUser = cache(async () => {
-  const authStartedAt = performance.now();
+function logPerformance(label: string, startedAt: number) {
+  if (!shouldMeasurePerformance) return;
 
-  // Create Supabase server client.
-  const clientStartedAt = performance.now();
+  console.info(
+    `[Performance] ${label}: ${Math.round(
+      performance.now() - startedAt
+    )}ms`
+  );
+}
+
+// Require an authenticated Supabase user
+export const requireUser = cache(async () => {
+  const startedAt = performance.now();
 
   const supabase = await createClient();
-
-  if (shouldMeasurePerformance) {
-    console.info(
-      `[Performance] Auth createClient: ${Math.round(
-        performance.now() - clientStartedAt
-      )}ms`
-    );
-  }
-
-  // Verify the authenticated user.
-  const userStartedAt = performance.now();
-
-  let authResult;
-
-  try {
-    authResult = await supabase.auth.getUser();
-  } finally {
-    if (shouldMeasurePerformance) {
-      console.info(
-        `[Performance] Dashboard Auth getUser: ${Math.round(
-          performance.now() - userStartedAt
-        )}ms`
-      );
-    }
-  }
 
   const {
     data: { user },
     error,
-  } = authResult;
-
-  if (shouldMeasurePerformance) {
-    console.info(
-      `[Performance] Auth requireUser total: ${Math.round(
-        performance.now() - authStartedAt
-      )}ms`
-    );
-  }
+  } = await supabase.auth.getUser();
 
   if (error || !user) {
     redirect("/login");
   }
 
+  logPerformance("Auth requireUser total", startedAt);
+
   return user;
 });
 
-export async function requireAdmin() {
-  const startedAt = performance.now();
-
+// Retrieve the current user's profile
+export const requireProfile = cache(async () => {
   const user = await requireUser();
+  const supabase = await createClient();
 
-  const adminUserId = process.env.ADMIN_USER_ID;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(
+      "id, full_name, avatar_path, role, status, created_at, updated_at"
+    )
+    .eq("id", user.id)
+    .single();
 
-  if (!adminUserId) {
-    throw new Error(
-      "ADMIN_USER_ID belum dikonfigurasi."
+  if (error || !data) {
+    console.error(
+      "Failed to load user profile:",
+      error?.message
     );
-  }
 
-  if (user.id !== adminUserId) {
     redirect("/unauthorized");
   }
 
-  if (shouldMeasurePerformance) {
-    console.info(
-      `[Performance] Auth requireAdmin total: ${Math.round(
-        performance.now() - startedAt
-      )}ms`
-    );
+  return data as UserProfile;
+});
+
+// Allow active accounts only
+export async function requireApprovedUser() {
+  const profile = await requireProfile();
+
+  if (profile.status === "pending") {
+    redirect("/pending");
   }
 
-  return user;
+  if (profile.status === "suspended") {
+    redirect("/suspended");
+  }
+
+  if (profile.status !== "active") {
+    redirect("/unauthorized");
+  }
+
+  return profile;
+}
+
+// Allow active administrators only
+export async function requireAdmin() {
+  const profile = await requireApprovedUser();
+
+  if (profile.role !== "admin") {
+    redirect("/unauthorized");
+  }
+
+  return profile;
 }

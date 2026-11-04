@@ -1,5 +1,6 @@
 
-import { type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
+
 import { updateSession } from "@/lib/supabase/proxy";
 
 export async function proxy(request: NextRequest) {
@@ -8,9 +9,20 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/login",
+    "/register",
+    "/pending",
+    "/suspended",
+    "/unauthorized",
+
     "/dashboard/:path*",
     "/inventory/:path*",
     "/transactions/:path*",
+
+    "/admin/:path*",
+    "/profile/:path*",
+    "/settings/:path*",
+
     "/api/v1/:path*",
   ],
 };

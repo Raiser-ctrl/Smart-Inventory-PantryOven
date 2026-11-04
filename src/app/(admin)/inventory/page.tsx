@@ -1,8 +1,10 @@
 
-import { requireAdmin } from "@/lib/auth";
+import { requireApprovedUser } from "@/lib/auth";
 import { getInventoryItems } from "@/lib/inventory";
 
 import InventoryWorkspace from "@/components/inventory/InventoryWorkspace";
+
+export const dynamic = "force-dynamic";
 
 type InventoryStatus = "active" | "archived" | "all";
 
@@ -15,7 +17,8 @@ type InventoryPageProps = {
 export default async function InventoryPage({
   searchParams,
 }: InventoryPageProps) {
-  await requireAdmin();
+  // Allow active Admin and Staff accounts
+  await requireApprovedUser();
 
   const params = await searchParams;
 

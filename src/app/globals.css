@@ -1,3 +1,4 @@
+
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -7,9 +8,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
- --font-sans: var(--font-geist-sans);
---font-mono: var(--font-geist-mono);
---font-heading: var(--font-geist-sans);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -117,14 +118,210 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Base styles */
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
+  html {
+    @apply font-sans;
+  }
+
   body {
     @apply bg-background text-foreground;
   }
-  html {
-    @apply font-sans;
+}
+
+/* Floating animation */
+@keyframes po-float {
+  0%, 100% {
+    translate: 0 0;
+  }
+
+  50% {
+    translate: 0 -12px;
+  }
+}
+
+/* Page entrance */
+@keyframes po-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Organic background */
+@keyframes po-blob {
+  0%, 100% {
+    border-radius: 45% 55% 50% 45%;
+  }
+
+  50% {
+    border-radius: 55% 45% 44% 56%;
+  }
+}
+
+/* Motion */
+.po-auth .po-float {
+  animation: po-float 5s ease-in-out infinite;
+}
+
+.po-auth .po-float-delayed {
+  animation: po-float 6s ease-in-out -2s infinite;
+}
+
+.po-auth .po-blob {
+  animation: po-blob 9s ease-in-out infinite;
+}
+
+.po-auth .po-enter {
+  animation: po-enter 650ms ease-out both;
+}
+
+/* Input fields */
+.po-auth .po-input {
+  width: 100%;
+  height: 48px;
+  border: 1px solid #e8dfd4;
+  border-radius: 14px;
+  background-color: #fdfbf8;
+  color: #463a30;
+  font-size: 14px;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.po-auth .po-input::placeholder {
+  color: #a49788;
+  opacity: 1;
+}
+
+.po-auth .po-input:hover:not(:disabled) {
+  border-color: #c8bba9;
+}
+
+.po-auth .po-input:focus-visible {
+  border-color: #8b9b78;
+  background-color: #fff;
+  box-shadow: 0 0 0 4px rgb(203 217 191 / 40%);
+  outline: none;
+}
+
+.po-auth .po-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* Password visibility */
+.po-auth input[type="password"]::-ms-reveal,
+.po-auth input[type="password"]::-ms-clear {
+  display: none;
+}
+
+.po-auth input[type="password"]::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  display: none !important;
+  pointer-events: none;
+}
+
+/* Field validation */
+.po-auth .po-input[aria-invalid="true"] {
+  border-color: #c66a60;
+  background-color: #fff9f8;
+  box-shadow: 0 0 0 3px rgb(198 106 96 / 10%);
+}
+
+.po-auth .po-input[aria-invalid="true"]:focus-visible {
+  border-color: #c66a60;
+  box-shadow: 0 0 0 4px rgb(198 106 96 / 15%);
+}
+
+.po-auth .po-field-error {
+  margin-top: 5px;
+  color: #b64e46;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Clay buttons */
+.po-auth .po-button {
+  display: inline-flex;
+  height: 50px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #778766;
+  border-radius: 15px;
+  background-color: #778766;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 5px 0 #58674c;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.po-auth .po-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #687a58;
+  background-color: #687a58;
+  color: #fff;
+  box-shadow: 0 7px 0 #58674c;
+}
+
+.po-auth .po-button:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 #58674c;
+}
+
+.po-auth .po-button:focus-visible {
+  outline: 3px solid #a3b695;
+  outline-offset: 4px;
+}
+
+.po-auth .po-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  box-shadow: none;
+}
+
+/* Mobile */
+@media (max-width: 639px) {
+  .po-auth .po-input {
+    font-size: 16px;
+  }
+
+  .po-auth .po-float,
+  .po-auth .po-float-delayed {
+    animation-duration: 6s;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .po-auth .po-float,
+  .po-auth .po-float-delayed,
+  .po-auth .po-blob,
+  .po-auth .po-enter {
+    animation: none;
+  }
+
+  .po-auth .po-input,
+  .po-auth .po-button {
+    transition: none;
+  }
+
+  .po-auth .po-button:hover:not(:disabled),
+  .po-auth .po-button:active:not(:disabled) {
+    transform: none;
   }
 }

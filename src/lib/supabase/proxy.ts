@@ -3,9 +3,15 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { performance } from "node:perf_hooks";
 
+const shouldMeasurePerformance =
+  process.env.PERF_DEBUG === "true";
+
 /**
- * Refresh Supabase authentication session
+ * Refresh the Supabase authentication session
  * and synchronize cookies between request and response.
+ *
+ * Account authorization is handled separately
+ * by server-side guards in lib/auth.ts.
  */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({
@@ -32,46 +38,48 @@ export async function updateSession(request: NextRequest) {
         },
 
         setAll(cookiesToSet) {
-          // Synchronize updated cookies with the request.
+          // Update cookies on the incoming request
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
 
-          // Create a response with updated request cookies.
+          // Forward the updated request cookies
           response = NextResponse.next({
             request,
           });
 
-          // Send refreshed cookies back to the browser.
-          cookiesToSet.forEach(
-            ({ name, value, options }) => {
-              response.cookies.set(name, value, options);
-            }
-          );
+          // Send refreshed cookies to the browser
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     }
   );
 
-  const startedAt = performance.now();
+  const startedAt = shouldMeasurePerformance
+    ? performance.now()
+    : 0;
 
   try {
-    // Verify JWT claims and refresh the session if needed.
+    // Validate JWT claims and refresh the session if needed
     const { error } = await supabase.auth.getClaims();
 
-    if (error && process.env.PERF_DEBUG === "true") {
+    if (error && shouldMeasurePerformance) {
       console.warn(
-        `[Performance] Proxy ${request.nextUrl.pathname} | Auth claims verification failed: ${error.message}`
+        `[Performance] Proxy ${request.nextUrl.pathname} | ` +
+          `Auth claims verification failed: ${error.message}`
       );
     }
   } finally {
-    if (process.env.PERF_DEBUG === "true") {
+    if (shouldMeasurePerformance) {
       const duration = Math.round(
         performance.now() - startedAt
       );
 
       console.info(
-        `[Performance] Proxy ${request.nextUrl.pathname} | Auth getClaims: ${duration}ms`
+        `[Performance] Proxy ${request.nextUrl.pathname} | ` +
+          `Auth getClaims: ${duration}ms`
       );
     }
   }

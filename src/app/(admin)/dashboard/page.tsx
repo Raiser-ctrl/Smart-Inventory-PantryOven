@@ -3,7 +3,7 @@ import Link from "next/link";
 import { performance } from "node:perf_hooks";
 import { ArrowUpRight } from "lucide-react";
 
-import { requireAdmin } from "@/lib/auth";
+import { requireApprovedUser } from "@/lib/auth";
 import { getInventoryItems } from "@/lib/inventory";
 
 import {
@@ -48,7 +48,8 @@ async function measured<T>(
 export default async function DashboardPage({
   searchParams,
 }: DashboardProps) {
-  await measured("Auth", () => requireAdmin());
+  // Allow active Admin and Staff users
+  await measured("Auth", () => requireApprovedUser());
 
   const params = await searchParams;
 
@@ -59,6 +60,7 @@ export default async function DashboardPage({
   const period: AnalyticsPeriod =
     requestedPeriod === "30" ? 30 : 7;
 
+  // Fetch inventory and analytics
   const inventoryPromise = measured(
     "Inventory Query",
     () => getInventoryItems()
@@ -108,11 +110,12 @@ export default async function DashboardPage({
       ? analyticsResult.value
       : null;
 
-  // Archived items are excluded from active stock.
+  // Exclude archived items
   const activeItems = items.filter(
     (item) => !item.archived_at
   );
 
+  // Identify low-stock items
   const lowStockItems = activeItems
     .filter(
       (item) =>
@@ -167,7 +170,7 @@ export default async function DashboardPage({
   return (
     <main className="min-w-0 bg-background px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
       <div className="mx-auto max-w-6xl space-y-5 lg:space-y-7">
-        {/* Compact dashboard header */}
+        {/* Dashboard header */}
         <header className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             Dashboard
@@ -183,9 +186,7 @@ export default async function DashboardPage({
                 href={`/dashboard?period=${days}`}
                 prefetch={false}
                 aria-current={
-                  period === days
-                    ? "page"
-                    : undefined
+                  period === days ? "page" : undefined
                 }
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors sm:text-sm ${
                   period === days
@@ -261,7 +262,10 @@ export default async function DashboardPage({
               className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               View history
-              <ArrowUpRight className="size-4" />
+              <ArrowUpRight
+                aria-hidden="true"
+                className="size-4"
+              />
             </Link>
           </div>
 
@@ -283,8 +287,7 @@ export default async function DashboardPage({
                     totals: analytics.totals,
                     daily: analytics.daily,
                     lowStock: lowStockItems,
-                    lowStockCount:
-                      lowStockItems.length,
+                    lowStockCount: lowStockItems.length,
                   }}
                 />
               </div>

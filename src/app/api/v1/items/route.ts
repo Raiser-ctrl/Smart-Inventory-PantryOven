@@ -10,6 +10,22 @@ const noStoreHeaders = {
   "Cache-Control": "private, no-store",
 };
 
+const VALID_CATEGORIES = [
+  "raw_material",
+  "finished_product",
+] as const;
+
+const VALID_UNITS = [
+  "kg",
+  "pcs",
+  "liter",
+  "gram",
+] as const;
+
+// Application-level stock limit.
+// Adjust if the business needs larger quantities.
+const MAX_STOCK = 1_000_000_000;
+
 type AuthResult =
   | { authorized: true }
   | {
@@ -18,44 +34,17 @@ type AuthResult =
       message: string;
     };
 
-async function verifyAdmin(): Promise<AuthResult> {
-  const supabase = await createClient();
+type ItemInput = {
+  name: string;
+  category: (typeof VALID_CATEGORIES)[number];
+  unit: (typeof VALID_UNITS)[number];
+  initial_stock: number;
+  minimum_stock: number;
+};
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    return {
-      authorized: false,
-      status: 401,
-      message: "Unauthorized. Silakan login terlebih dahulu.",
-    };
-  }
-
-  const adminUserId = process.env.ADMIN_USER_ID;
-
-  if (!adminUserId) {
-    console.error("ADMIN_USER_ID belum dikonfigurasi.");
-
-    return {
-      authorized: false,
-      status: 500,
-      message: "Konfigurasi server belum lengkap.",
-    };
-  }
-
-  if (user.id !== adminUserId) {
-    return {
-      authorized: false,
-      status: 403,
-      message: "Forbidden. Hanya admin yang dapat mengakses data.",
-    };
-  }
-
-  return { authorized: true };
-}
+// ==========================================
+// RESPONSE HELPERS
+// ==========================================
 
 function jsonError(message: string, status: number) {
   return NextResponse.json(
@@ -70,17 +59,72 @@ function jsonError(message: string, status: number) {
   );
 }
 
-function verifyRequestOrigin(request: NextRequest) {
-  const origin = request.headers.get("origin");
+// ==========================================
+// AUTHORIZATION
+// ==========================================
 
-  const allowedOrigin =
+async function verifyAdmin(): Promise<AuthResult> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return {
+      authorized: false,
+      status: 401,
+      message:
+        "Unauthorized. Silakan login terlebih dahulu.",
+    };
+  }
+
+  const adminUserId = process.env.ADMIN_USER_ID;
+
+  if (!adminUserId) {
+    console.error(
+      "ADMIN_USER_ID belum dikonfigurasi."
+    );
+
+    return {
+      authorized: false,
+      status: 500,
+      message:
+        "Konfigurasi server belum lengkap.",
+    };
+  }
+
+  if (user.id !== adminUserId) {
+    return {
+      authorized: false,
+      status: 403,
+      message:
+        "Forbidden. Hanya admin yang dapat mengakses data.",
+    };
+  }
+
+  return { authorized: true };
+}
+
+// ==========================================
+// REQUEST VALIDATION
+// ==========================================
+
+function verifyRequestOrigin(request: NextRequest) {
+  const requestOrigin =
+    request.headers.get("origin");
+
+  const configuredOrigin =
     process.env.APP_ORIGIN ??
     (process.env.NODE_ENV === "development"
       ? "http://localhost:3000"
       : "");
 
-  if (!allowedOrigin) {
-    console.error("APP_ORIGIN belum dikonfigurasi.");
+  if (!configuredOrigin) {
+    console.error(
+      "APP_ORIGIN belum dikonfigurasi."
+    );
 
     return jsonError(
       "Konfigurasi origin server belum lengkap.",
@@ -88,7 +132,33 @@ function verifyRequestOrigin(request: NextRequest) {
     );
   }
 
-  if (origin !== allowedOrigin) {
+  let allowedOrigin: string;
+
+  try {
+    const parsedOrigin = new URL(configuredOrigin);
+
+    if (
+      !["http:", "https:"].includes(
+        parsedOrigin.protocol
+      ) ||
+      parsedOrigin.origin === "null"
+    ) {
+      throw new Error("Invalid origin protocol");
+    }
+
+    allowedOrigin = parsedOrigin.origin;
+  } catch {
+    console.error(
+      "APP_ORIGIN tidak valid."
+    );
+
+    return jsonError(
+      "Konfigurasi origin server tidak valid.",
+      500
+    );
+  }
+
+  if (requestOrigin !== allowedOrigin) {
     return jsonError(
       "Origin request tidak diizinkan.",
       403
@@ -98,11 +168,17 @@ function verifyRequestOrigin(request: NextRequest) {
   return null;
 }
 
-function verifyJsonContentType(request: NextRequest) {
+function verifyJsonContentType(
+  request: NextRequest
+) {
   const contentType =
     request.headers.get("content-type") ?? "";
 
-  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+  if (
+    !/^application\/json(?:\s*;|$)/i.test(
+      contentType
+    )
+  ) {
     return jsonError(
       "Content-Type harus application/json.",
       415
@@ -112,20 +188,123 @@ function verifyJsonContentType(request: NextRequest) {
   return null;
 }
 
+function isValidStock(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= MAX_STOCK
+  );
+}
+
+function validateItemInput(
+  body: unknown
+):
+  | { valid: true; data: ItemInput }
+  | { valid: false; message: string } {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body)
+  ) {
+    return {
+      valid: false,
+      message: "Data barang tidak valid.",
+    };
+  }
+
+  const input = body as Record<string, unknown>;
+
+  const name =
+    typeof input.name === "string"
+      ? input.name.trim()
+      : "";
+
+  const category = input.category;
+  const unit = input.unit;
+
+  if (
+    name.length === 0 ||
+    name.length > 150
+  ) {
+    return {
+      valid: false,
+      message:
+        "Nama barang wajib diisi dan maksimal 150 karakter.",
+    };
+  }
+
+  if (
+    typeof category !== "string" ||
+    !VALID_CATEGORIES.some(
+      (value) => value === category
+    )
+  ) {
+    return {
+      valid: false,
+      message:
+        "Kategori barang tidak valid.",
+    };
+  }
+
+  if (
+    typeof unit !== "string" ||
+    !VALID_UNITS.some(
+      (value) => value === unit
+    )
+  ) {
+    return {
+      valid: false,
+      message:
+        "Satuan barang tidak valid.",
+    };
+  }
+
+  if (
+    !isValidStock(input.initial_stock) ||
+    !isValidStock(input.minimum_stock)
+  ) {
+    return {
+      valid: false,
+      message:
+        "Stok awal dan stok minimum harus berupa angka antara 0 dan 1.000.000.000.",
+    };
+  }
+
+  return {
+    valid: true,
+    data: {
+      name,
+      category:
+        category as ItemInput["category"],
+      unit: unit as ItemInput["unit"],
+      initial_stock: input.initial_stock,
+      minimum_stock: input.minimum_stock,
+    },
+  };
+}
+
+// ==========================================
 // GET /api/v1/items
-// Retrieve inventory data for admin.
+// ==========================================
+
 export async function GET() {
   try {
     const auth = await verifyAdmin();
 
     if (!auth.authorized) {
-      return jsonError(auth.message, auth.status);
+      return jsonError(
+        auth.message,
+        auth.status
+      );
     }
 
     const { data, error } = await supabaseAdmin
       .from("inventory_current_stock")
       .select("*")
-      .order("name", { ascending: true });
+      .order("name", {
+        ascending: true,
+      });
 
     if (error) {
       console.error(
@@ -142,7 +321,8 @@ export async function GET() {
     return NextResponse.json(
       {
         success: true,
-        message: "Data inventory berhasil diambil.",
+        message:
+          "Data inventory berhasil diambil.",
         data: data ?? [],
       },
       {
@@ -151,7 +331,10 @@ export async function GET() {
       }
     );
   } catch (error) {
-    console.error("GET items error:", error);
+    console.error(
+      "GET items error:",
+      error
+    );
 
     return jsonError(
       "Internal Server Error",
@@ -160,25 +343,33 @@ export async function GET() {
   }
 }
 
+// ==========================================
 // POST /api/v1/items
-// Create a new inventory item for admin.
-export async function POST(request: NextRequest) {
+// ==========================================
+
+export async function POST(
+  request: NextRequest
+) {
   try {
-    // Verify admin access before processing input.
+    // 1. Verify admin access.
     const auth = await verifyAdmin();
 
     if (!auth.authorized) {
-      return jsonError(auth.message, auth.status);
+      return jsonError(
+        auth.message,
+        auth.status
+      );
     }
 
-    // Verify request origin.
-    const originError = verifyRequestOrigin(request);
+    // 2. Verify request origin.
+    const originError =
+      verifyRequestOrigin(request);
 
     if (originError) {
       return originError;
     }
 
-    // Verify JSON content type.
+    // 3. Verify content type.
     const contentTypeError =
       verifyJsonContentType(request);
 
@@ -186,7 +377,7 @@ export async function POST(request: NextRequest) {
       return contentTypeError;
     }
 
-    // Parse request body.
+    // 4. Parse JSON body.
     let body: unknown;
 
     try {
@@ -198,72 +389,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (
-      !body ||
-      typeof body !== "object" ||
-      Array.isArray(body)
-    ) {
+    // 5. Validate input.
+    const validation =
+      validateItemInput(body);
+
+    if (!validation.valid) {
       return jsonError(
-        "Data barang tidak valid.",
+        validation.message,
         400
       );
     }
 
-    const input = body as Record<string, unknown>;
-
-    // Normalize and validate fields.
-    const name =
-      typeof input.name === "string"
-        ? input.name.trim()
-        : "";
-
-    const category = input.category;
-    const unit = input.unit;
-    const initialStock = input.initial_stock;
-    const minimumStock = input.minimum_stock;
-
-    const validCategories = [
-      "raw_material",
-      "finished_product",
-    ];
-
-    const validUnits = [
-      "kg",
-      "pcs",
-      "liter",
-      "gram",
-    ];
-
-    if (
-      name.length === 0 ||
-      name.length > 150 ||
-      typeof category !== "string" ||
-      !validCategories.includes(category) ||
-      typeof unit !== "string" ||
-      !validUnits.includes(unit) ||
-      typeof initialStock !== "number" ||
-      !Number.isFinite(initialStock) ||
-      initialStock < 0 ||
-      typeof minimumStock !== "number" ||
-      !Number.isFinite(minimumStock) ||
-      minimumStock < 0
-    ) {
-      return jsonError(
-        "Periksa kembali nama, kategori, unit, dan jumlah stok.",
-        400
-      );
-    }
-
-    // Insert item after authorization and validation.
+    // 6. Insert item into database.
     const { data, error } = await supabaseAdmin
       .from("items")
-      .insert({
-        name,
-        category,
-        unit,
-        initial_stock: initialStock,
-        minimum_stock: minimumStock,
-      })
+      .insert(validation.data)
       .select(
         "id, name, category, unit, initial_stock, minimum_stock"
       )
@@ -284,7 +424,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        message: "Barang berhasil ditambahkan.",
+        message:
+          "Barang berhasil ditambahkan.",
         data,
       },
       {
@@ -293,7 +434,10 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
-    console.error("POST items error:", error);
+    console.error(
+      "POST items error:",
+      error
+    );
 
     return jsonError(
       "Internal Server Error",

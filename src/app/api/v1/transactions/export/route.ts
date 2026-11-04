@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 
@@ -23,6 +24,8 @@ type ArchiveStatus = "active" | "archived" | "all";
 
 const BATCH_SIZE = 500;
 const MAX_EXPORT_ROWS = 50_000;
+const MAX_SEARCH_LENGTH = 100;
+
 
 type Transaction = {
   id: string;
@@ -40,6 +43,11 @@ type ExportRow = {
   quantity: number;
   unit: string;
   notes: string;
+};
+
+type ItemDetail = {
+  name: string;
+  unit: string;
 };
 
 const typeLabels: Record<string, string> = {
@@ -63,14 +71,35 @@ const reportDateFormatter = new Intl.DateTimeFormat(
   }
 );
 
+const responseHeaders = {
+  "Cache-Control": "private, no-store",
+  "X-Content-Type-Options": "nosniff",
+};
+
+function jsonError(message: string, status: number) {
+  return NextResponse.json(
+    { success: false, message },
+    {
+      status,
+      headers: responseHeaders,
+    }
+  );
+}
+
 // ==========================================
-// HELPERS
+// INPUT / EXPORT SECURITY
 // ==========================================
+
+function escapeLike(value: string) {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
 
 function escapeCsv(value: unknown) {
   let text = String(value ?? "");
 
-  if (/^\s*[=+\-@\t\r\n]/.test(text)) {
+  // Prevent spreadsheet formula execution when CSV
+  // is opened by Excel or other spreadsheet software.
+  if (/^[\s\uFEFF]*[=+\-@]/.test(text)) {
     text = `'${text}`;
   }
 
@@ -78,19 +107,15 @@ function escapeCsv(value: unknown) {
 }
 
 function escapeExcelText(value: string) {
-  if (/^\s*[=+\-@\t\r\n]/.test(value)) {
+  if (/^[\s\uFEFF]*[=+\-@]/.test(value)) {
     return `'${value}`;
   }
 
   return value;
 }
 
-function escapeLike(value: string) {
-  return value.replace(/[\\%_]/g, "\\$&");
-}
-
 function createCsv(rows: ExportRow[]) {
-  const headers = [
+  const columns = [
     "Date",
     "Item",
     "Type",
@@ -100,7 +125,7 @@ function createCsv(rows: ExportRow[]) {
   ];
 
   const lines = [
-    headers.map(escapeCsv).join(","),
+    columns.map(escapeCsv).join(","),
     ...rows.map((row) =>
       [
         row.date,
@@ -198,7 +223,6 @@ function createExcelReport(
   worksheet.mergeCells("A1:F1");
 
   const titleCell = worksheet.getCell("A1");
-
   titleCell.value =
     "PantryOven - Stock Movement Report";
 
@@ -219,7 +243,6 @@ function createExcelReport(
   worksheet.mergeCells("A2:F2");
 
   const periodCell = worksheet.getCell("A2");
-
   periodCell.value =
     `Period: ${formatPeriod(startDate, endDate)}`;
 
@@ -264,7 +287,7 @@ function createExcelReport(
   worksheet.getRow(4).height = 12;
 
   // Table header
-  const headers = [
+  const columns = [
     "Date",
     "Item",
     "Type",
@@ -275,7 +298,7 @@ function createExcelReport(
 
   const headerRow = worksheet.getRow(5);
 
-  headers.forEach((header, index) => {
+  columns.forEach((header, index) => {
     const cell = headerRow.getCell(index + 1);
 
     cell.value = header;
@@ -323,7 +346,10 @@ function createExcelReport(
       .split(/\r?\n/)
       .reduce(
         (total, line) =>
-          total + Math.max(1, Math.ceil(line.length / 42)),
+          total + Math.max(
+            1,
+            Math.ceil(line.length / 42)
+          ),
         0
       );
 
@@ -351,7 +377,9 @@ function createExcelReport(
           cell.fill = {
             type: "pattern",
             pattern: "solid",
-            fgColor: { argb: COLORS.alternate },
+            fgColor: {
+              argb: COLORS.alternate,
+            },
           };
         }
 
@@ -418,7 +446,10 @@ function createExcelReport(
   }
 
   // Worksheet settings
-  const lastRow = Math.max(6, 5 + rows.length);
+  const lastRow = Math.max(
+    6,
+    5 + rows.length
+  );
 
   worksheet.views = [
     { showGridLines: false },
@@ -458,15 +489,11 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
 
     const format = params.get("format") ?? "csv";
-
-    const search = (params.get("search") ?? "")
-      .trim()
-      .slice(0, 100);
+    const rawSearch = params.get("search") ?? "";
+    const search = rawSearch.trim();
 
     const type = params.get("type") ?? "all";
-
-    const rawStatus =
-      params.get("status") ?? "active";
+    const rawStatus = params.get("status") ?? "active";
 
     const rawStartDate =
       params.get("startDate") ?? "";
@@ -477,11 +504,21 @@ export async function GET(request: NextRequest) {
     const startDate = normalizeDate(rawStartDate);
     const endDate = normalizeDate(rawEndDate);
 
-    // Validation
+    // ======================================
+    // PARAMETER VALIDATION
+    // ======================================
+
     if (format !== "csv" && format !== "xlsx") {
-      return NextResponse.json(
-        { message: "Invalid export format." },
-        { status: 400 }
+      return jsonError(
+        "Invalid export format.",
+        400
+      );
+    }
+
+    if (search.length > MAX_SEARCH_LENGTH) {
+      return jsonError(
+        "Search cannot exceed 100 characters.",
+        400
       );
     }
 
@@ -491,9 +528,9 @@ export async function GET(request: NextRequest) {
         type as (typeof VALID_TYPES)[number]
       )
     ) {
-      return NextResponse.json(
-        { message: "Invalid transaction type." },
-        { status: 400 }
+      return jsonError(
+        "Invalid transaction type.",
+        400
       );
     }
 
@@ -502,9 +539,9 @@ export async function GET(request: NextRequest) {
       rawStatus !== "archived" &&
       rawStatus !== "all"
     ) {
-      return NextResponse.json(
-        { message: "Invalid archive status." },
-        { status: 400 }
+      return jsonError(
+        "Invalid archive status.",
+        400
       );
     }
 
@@ -514,12 +551,9 @@ export async function GET(request: NextRequest) {
       (rawStartDate && !startDate) ||
       (rawEndDate && !endDate)
     ) {
-      return NextResponse.json(
-        {
-          message:
-            "Invalid date format. Use YYYY-MM-DD.",
-        },
-        { status: 400 }
+      return jsonError(
+        "Invalid date format. Use YYYY-MM-DD.",
+        400
       );
     }
 
@@ -528,178 +562,151 @@ export async function GET(request: NextRequest) {
       endDate &&
       startDate > endDate
     ) {
-      return NextResponse.json(
-        {
-          message:
-            "Start date cannot be after end date.",
-        },
-        { status: 400 }
+      return jsonError(
+        "Start date cannot be after end date.",
+        400
       );
     }
 
     // ======================================
-    // SEARCH ITEMS
-    // ======================================
-
-    let matchingItemIds: string[] | null = null;
-
-    if (search) {
-      const ids: string[] = [];
-      const safeSearch = escapeLike(search);
-
-      for (
-        let offset = 0;
-        ;
-        offset += BATCH_SIZE
-      ) {
-        const { data, error } = await supabaseAdmin
-          .from("items")
-          .select("id")
-          .ilike("name", `%${safeSearch}%`)
-          .order("id")
-          .range(
-            offset,
-            offset + BATCH_SIZE - 1
-          );
-
-        if (error) throw error;
-
-        const batch = data ?? [];
-
-        ids.push(...batch.map((item) => item.id));
-
-        if (batch.length < BATCH_SIZE) {
-          break;
-        }
-      }
-
-      matchingItemIds = ids;
-    }
-
-    // ======================================
-    // FETCH TRANSACTIONS
+    // QUERY TRANSACTIONS
     // ======================================
 
     const transactions: Transaction[] = [];
 
-    if (
-      matchingItemIds === null ||
-      matchingItemIds.length > 0
-    ) {
-      for (
-        let offset = 0;
-        offset <= MAX_EXPORT_ROWS;
-        offset += BATCH_SIZE
-      ) {
-        let query = supabaseAdmin
-          .from("stock_transactions")
-          .select(
-            `
-              id,
-              item_id,
-              transaction_type,
-              quantity,
-              notes,
-              created_at,
-              item:items!inner (
-                archived_at
-              )
-            `
-          );
+    // Stable upper boundary for newly inserted
+    // transactions during export.
+    const exportCutoff = new Date().toISOString();
 
-        if (type !== "all") {
-          query = query.eq(
-            "transaction_type",
-            type
-          );
-        }
+    let cursorCreatedAt: string | null = null;
+    let cursorId: string | null = null;
 
-        if (matchingItemIds !== null) {
-          query = query.in(
-            "item_id",
-            matchingItemIds
-          );
-        }
+    while (transactions.length <= MAX_EXPORT_ROWS) {
+      let query = supabaseAdmin
+        .from("stock_transactions")
+        .select(`
+          id,
+          item_id,
+          transaction_type,
+          quantity,
+          notes,
+          created_at,
+          item:items!inner (
+            id,
+            name,
+            unit,
+            archived_at
+          )
+        `)
+        .lte("created_at", exportCutoff);
 
-        if (startDate) {
-          query = query.gte(
-            "created_at",
-            jakartaDateBoundary(startDate)
-          );
-        }
-
-        if (endDate) {
-          query = query.lt(
-            "created_at",
-            jakartaDateBoundary(endDate, true)
-          );
-        }
-
-        if (status === "active") {
-          query = query.is(
-            "item.archived_at",
-            null
-          );
-        } else if (status === "archived") {
-          query = query.not(
-            "item.archived_at",
-            "is",
-            null
-          );
-        }
-
-        const remaining =
-          MAX_EXPORT_ROWS + 1 - offset;
-
-        const limit = Math.min(
-          BATCH_SIZE,
-          remaining
+      if (type !== "all") {
+        query = query.eq(
+          "transaction_type",
+          type
         );
-
-        const { data, error } = await query
-          .order("created_at", {
-            ascending: false,
-          })
-          .order("id", {
-            ascending: false,
-          })
-          .range(
-            offset,
-            offset + limit - 1
-          );
-
-        if (error) throw error;
-
-        const batch: Transaction[] = (data ?? []).map(
-          (row) => ({
-            id: row.id,
-            item_id: row.item_id,
-            transaction_type:
-              row.transaction_type,
-            quantity: Number(row.quantity),
-            notes: row.notes,
-            created_at: row.created_at,
-          })
-        );
-
-        transactions.push(...batch);
-
-        if (
-          transactions.length > MAX_EXPORT_ROWS ||
-          batch.length < limit
-        ) {
-          break;
-        }
       }
+
+      if (search) {
+        query = query.ilike(
+          "item.name",
+          `%${escapeLike(search)}%`
+        );
+      }
+
+      if (startDate) {
+        query = query.gte(
+          "created_at",
+          jakartaDateBoundary(startDate)
+        );
+      }
+
+      if (endDate) {
+        query = query.lt(
+          "created_at",
+          jakartaDateBoundary(endDate, true)
+        );
+      }
+
+      if (status === "active") {
+        query = query.is(
+          "item.archived_at",
+          null
+        );
+      } else if (status === "archived") {
+        query = query.not(
+          "item.archived_at",
+          "is",
+          null
+        );
+      }
+
+      if (cursorCreatedAt && cursorId) {
+        query = query.or(
+          `created_at.lt.${cursorCreatedAt},` +
+          `and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId})`
+        );
+      }
+
+      const remaining =
+        MAX_EXPORT_ROWS + 1 - transactions.length;
+
+      const limit = Math.min(
+        BATCH_SIZE,
+        remaining
+      );
+
+      const { data, error } = await query
+        .order("created_at", {
+          ascending: false,
+        })
+        .order("id", {
+          ascending: false,
+        })
+        .limit(limit);
+
+      if (error) {
+        console.error(
+          "Export transaction query error:",
+          error.message
+        );
+
+        return jsonError(
+          "Failed to fetch transactions.",
+          500
+        );
+      }
+
+      const batch = data ?? [];
+
+      for (const row of batch) {
+        transactions.push({
+          id: row.id,
+          item_id: row.item_id,
+          transaction_type: row.transaction_type,
+          quantity: Number(row.quantity),
+          notes: row.notes,
+          created_at: row.created_at,
+        });
+      }
+
+      if (
+        transactions.length > MAX_EXPORT_ROWS ||
+        batch.length < limit
+      ) {
+        break;
+      }
+
+      const last = batch[batch.length - 1];
+
+      cursorCreatedAt = last.created_at;
+      cursorId = last.id;
     }
 
     if (transactions.length > MAX_EXPORT_ROWS) {
-      return NextResponse.json(
-        {
-          message:
-            "Export limit exceeded. Narrow your filters and try again.",
-        },
-        { status: 413 }
+      return jsonError(
+        "Export limit exceeded. Narrow your filters and try again.",
+        413
       );
     }
 
@@ -713,10 +720,7 @@ export async function GET(request: NextRequest) {
       ),
     ];
 
-    const itemMap = new Map<
-      string,
-      { name: string; unit: string }
-    >();
+    const itemMap = new Map<string, ItemDetail>();
 
     for (
       let offset = 0;
@@ -733,7 +737,17 @@ export async function GET(request: NextRequest) {
         .select("id, name, unit")
         .in("id", batchIds);
 
-      if (error) throw error;
+      if (error) {
+        console.error(
+          "Export item query error:",
+          error.message
+        );
+
+        return jsonError(
+          "Failed to fetch item details.",
+          500
+        );
+      }
 
       for (const item of data ?? []) {
         itemMap.set(item.id, {
@@ -777,24 +791,28 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const filename = `pantryoven-stock-report-${
-      new Date().toISOString().slice(0, 10)
-    }`;
+    const filename =
+      `pantryoven-stock-report-${
+        new Date().toISOString().slice(0, 10)
+      }`;
 
     // ======================================
     // CSV EXPORT
     // ======================================
 
     if (format === "csv") {
-      return new NextResponse(createCsv(rows), {
-        headers: {
-          "Content-Type":
-            "text/csv; charset=utf-8",
-          "Content-Disposition":
-            `attachment; filename="${filename}.csv"`,
-          "Cache-Control": "no-store",
-        },
-      });
+      return new NextResponse(
+        createCsv(rows),
+        {
+          headers: {
+            ...responseHeaders,
+            "Content-Type":
+              "text/csv; charset=utf-8",
+            "Content-Disposition":
+              `attachment; filename="${filename}.csv"`,
+          },
+        }
+      );
     }
 
     // ======================================
@@ -816,11 +834,11 @@ export async function GET(request: NextRequest) {
       new Uint8Array(buffer),
       {
         headers: {
+          ...responseHeaders,
           "Content-Type":
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "Content-Disposition":
             `attachment; filename="${filename}.xlsx"`,
-          "Cache-Control": "no-store",
         },
       }
     );
@@ -830,12 +848,9 @@ export async function GET(request: NextRequest) {
       error
     );
 
-    return NextResponse.json(
-      {
-        message:
-          "Failed to export transactions.",
-      },
-      { status: 500 }
+    return jsonError(
+      "Failed to export transactions.",
+      500
     );
   }
 }

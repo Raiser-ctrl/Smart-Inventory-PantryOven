@@ -56,7 +56,6 @@ type AnalyticsOptions = {
 
 const BATCH_SIZE = 1000;
 const ITEM_BATCH_SIZE = 200;
-const JAKARTA_OFFSET_HOURS = 7;
 
 const shouldMeasurePerformance =
   process.env.NODE_ENV === "development" ||
@@ -83,27 +82,35 @@ async function measureAnalyticsOperation<T>(
   }
 }
 
-const jakartaFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "Asia/Jakarta",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+const jakartaFormatter = new Intl.DateTimeFormat(
+  "en-US",
+  {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }
+);
 
 function jakartaDateKey(date: Date): string {
   const parts = jakartaFormatter.formatToParts(date);
 
   const get = (type: string) =>
-    parts.find((part) => part.type === type)?.value ?? "";
+    parts.find((part) => part.type === type)
+      ?.value ?? "";
 
-  return `${get("year")}-${get("month")}-${get("day")}`;
+  return (
+    `${get("year")}-${get("month")}-${get("day")}`
+  );
 }
 
 function jakartaMidnightUtc(dateKey: string): Date {
-  const [year, month, day] = dateKey.split("-").map(Number);
+  const [year, month, day] = dateKey
+    .split("-")
+    .map(Number);
 
   return new Date(
-    Date.UTC(year, month - 1, day, -JAKARTA_OFFSET_HOURS)
+    Date.UTC(year, month - 1, day, -7)
   );
 }
 
@@ -111,7 +118,9 @@ function addCalendarDays(
   dateKey: string,
   days: number
 ): string {
-  const [year, month, day] = dateKey.split("-").map(Number);
+  const [year, month, day] = dateKey
+    .split("-")
+    .map(Number);
 
   return new Date(
     Date.UTC(year, month - 1, day + days, 12)
@@ -143,7 +152,8 @@ function updateItemActivity(
 
   target.set(itemId, {
     quantity: current.quantity + quantity,
-    transactionCount: current.transactionCount + 1,
+    transactionCount:
+      current.transactionCount + 1,
   });
 }
 
@@ -164,13 +174,15 @@ function buildItemActivity(
           unit: item.unit,
           category: item.category,
           quantity: activity.quantity,
-          transactionCount: activity.transactionCount,
+          transactionCount:
+            activity.transactionCount,
         },
       ];
     })
     .sort(
       (a, b) =>
-        b.transactionCount - a.transactionCount ||
+        b.transactionCount -
+          a.transactionCount ||
         a.name.localeCompare(b.name, "id")
     );
 }
@@ -190,106 +202,154 @@ function inventoryToItemInfo(
   );
 }
 
-async function getItemInformation() {
+async function getItemInformation(
+  itemIds: string[]
+): Promise<Map<string, ItemInfo>> {
   const itemInfo = new Map<string, ItemInfo>();
-  let offset = 0;
 
-  while (true) {
-    const { data, error } = await supabaseAdmin
-      .from("items")
-      .select("id, name, unit, category")
-      .order("id", { ascending: true })
-      .range(offset, offset + ITEM_BATCH_SIZE - 1);
+  for (
+    let offset = 0;
+    offset < itemIds.length;
+    offset += ITEM_BATCH_SIZE
+  ) {
+    const batchIds = itemIds.slice(
+      offset,
+      offset + ITEM_BATCH_SIZE
+    );
+
+    const { data, error } =
+      await measureAnalyticsOperation(
+        "Item Metadata Query",
+        () =>
+          supabaseAdmin
+            .from("items")
+            .select("id, name, unit, category")
+            .in("id", batchIds)
+      );
 
     if (error) {
-      console.error("Analytics item query error:", error);
+      console.error(
+        "Analytics item query error:",
+        error
+      );
 
       throw new Error(
-        "Gagal mengambil informasi barang analytics."
+        "Gagal mengambil metadata barang."
       );
     }
 
-    const rows = data ?? [];
-
-    for (const item of rows) {
+    for (const item of data ?? []) {
       itemInfo.set(item.id, {
         name: item.name,
         unit: item.unit,
         category: item.category,
       });
     }
-
-    if (rows.length < ITEM_BATCH_SIZE) {
-      break;
-    }
-
-    offset += ITEM_BATCH_SIZE;
   }
 
   return itemInfo;
 }
 
 async function resolveItemInformation(
+  itemIds: string[],
   inventoryPromise?: Promise<InventoryItem[]>
-) {
-  if (!inventoryPromise) {
-    return measureAnalyticsOperation(
-      "Item Metadata Query",
-      () => getItemInformation()
-    );
+): Promise<Map<string, ItemInfo>> {
+  if (itemIds.length === 0) {
+    // Observe any supplied promise rejection.
+    await inventoryPromise?.catch(() => undefined);
+    return new Map();
   }
 
-  try {
-    const items = await inventoryPromise;
-
-    if (shouldMeasurePerformance) {
-      console.info(
-        `[Analytics] Reused inventory metadata: ${items.length} items`
+  if (inventoryPromise) {
+    try {
+      const inventory = await inventoryPromise;
+      const available = inventoryToItemInfo(
+        inventory
       );
-    }
 
-    return inventoryToItemInfo(items);
-  } catch {
-    if (shouldMeasurePerformance) {
-      console.info(
-        "[Analytics] Inventory unavailable, fetching item metadata"
-      );
-    }
+      const result = new Map<string, ItemInfo>();
+      const missingIds: string[] = [];
 
-    return measureAnalyticsOperation(
-      "Item Metadata Fallback Query",
-      () => getItemInformation()
-    );
+      for (const id of itemIds) {
+        const item = available.get(id);
+
+        if (item) {
+          result.set(id, item);
+        } else {
+          missingIds.push(id);
+        }
+      }
+
+      if (missingIds.length === 0) {
+        return result;
+      }
+
+      const missingInfo =
+        await getItemInformation(missingIds);
+
+      for (const [id, item] of missingInfo) {
+        result.set(id, item);
+      }
+
+      return result;
+    } catch (error) {
+      if (shouldMeasurePerformance) {
+        console.info(
+          "[Analytics] Inventory reuse unavailable:",
+          error
+        );
+      }
+    }
   }
+
+  return getItemInformation(itemIds);
 }
 
-// Get analytics for 7 or 30 Jakarta calendar days.
 export async function getInventoryAnalytics(
   period: AnalyticsPeriod = 7,
   options: AnalyticsOptions = {}
 ) {
   if (period !== 7 && period !== 30) {
-    throw new Error("Periode analytics tidak valid.");
+    throw new Error(
+      "Periode analytics tidak valid."
+    );
   }
 
   const startedAt = performance.now();
-  const today = jakartaDateKey(new Date());
+  const snapshotTime = new Date();
 
-  const startDate = addCalendarDays(today, -(period - 1));
-  const nextDate = addCalendarDays(today, 1);
+  const today = jakartaDateKey(snapshotTime);
 
-  const startIso = jakartaMidnightUtc(
-    startDate
-  ).toISOString();
+  const startDate = addCalendarDays(
+    today,
+    -(period - 1)
+  );
 
-  const endIso = jakartaMidnightUtc(
-    nextDate
-  ).toISOString();
+  const nextDate = addCalendarDays(
+    today,
+    1
+  );
+
+  const startIso =
+    jakartaMidnightUtc(startDate)
+      .toISOString();
+
+  const endIso =
+    jakartaMidnightUtc(nextDate)
+      .toISOString();
+
+  // Prevent newly created transactions from
+  // entering the current analytics request.
+  const cutoffIso =
+    snapshotTime.toISOString();
 
   const daily: DailyActivity[] = Array.from(
     { length: period },
     (_, index) => ({
-      date: addCalendarDays(startDate, index),
+      date: addCalendarDays(
+        startDate,
+        index
+      ),
       stock_in: 0,
       stock_out: 0,
       usage: 0,
@@ -298,46 +358,70 @@ export async function getInventoryAnalytics(
   );
 
   const dailyMap = new Map(
-    daily.map((entry) => [entry.date, entry])
+    daily.map((entry) => [
+      entry.date,
+      entry,
+    ])
   );
 
-  const totals: Record<TransactionType, number> = {
+  // These values represent transaction counts,
+  // not total stock quantities.
+  const totals: Record<
+    TransactionType,
+    number
+  > = {
     stock_in: 0,
     stock_out: 0,
     usage: 0,
     waste: 0,
   };
 
-  const usageMap = new Map<string, ActivitySummary>();
-  const wasteMap = new Map<string, ActivitySummary>();
+  const usageMap = new Map<
+    string,
+    ActivitySummary
+  >();
 
-  // Metadata and transactions are processed concurrently.
-  const itemInfoPromise = resolveItemInformation(
-    options.inventoryPromise
-  );
+  const wasteMap = new Map<
+    string,
+    ActivitySummary
+  >();
 
-  let offset = 0;
+  let cursorCreatedAt: string | null = null;
+  let cursorId: string | null = null;
+
   let transactionCount = 0;
 
   try {
     while (true) {
+      let query = supabaseAdmin
+        .from("stock_transactions")
+        .select(
+          "id, item_id, transaction_type, quantity, created_at"
+        )
+        .gte("created_at", startIso)
+        .lt("created_at", endIso)
+        .lte("created_at", cutoffIso);
+
+      // Keyset pagination in ascending order.
+      if (cursorCreatedAt && cursorId) {
+        query = query.or(
+          `created_at.gt.${cursorCreatedAt},` +
+          `and(created_at.eq.${cursorCreatedAt},id.gt.${cursorId})`
+        );
+      }
+
       const { data, error } =
         await measureAnalyticsOperation(
           "Transactions Query",
           () =>
-            supabaseAdmin
-              .from("stock_transactions")
-              .select(
-                "id, item_id, transaction_type, quantity, created_at"
-              )
-              .gte("created_at", startIso)
-              .lt("created_at", endIso)
-              .order("created_at", { ascending: true })
-              .order("id", { ascending: true })
-              .range(
-                offset,
-                offset + BATCH_SIZE - 1
-              )
+            query
+              .order("created_at", {
+                ascending: true,
+              })
+              .order("id", {
+                ascending: true,
+              })
+              .limit(BATCH_SIZE)
         );
 
       if (error) {
@@ -347,15 +431,33 @@ export async function getInventoryAnalytics(
         );
 
         throw new Error(
-          "Gagal mengambil data transaksi analytics."
+          "Gagal mengambil transaksi analytics."
         );
       }
 
-      const rows: TransactionRow[] = data ?? [];
+      const rows: TransactionRow[] =
+        data ?? [];
 
       for (const transaction of rows) {
-        if (!isTransactionType(transaction.transaction_type)) {
+        if (
+          !isTransactionType(
+            transaction.transaction_type
+          )
+        ) {
           continue;
+        }
+
+        const quantity = Number(
+          transaction.quantity
+        );
+
+        if (
+          !Number.isFinite(quantity) ||
+          quantity < 0
+        ) {
+          throw new Error(
+            "Ditemukan kuantitas transaksi tidak valid."
+          );
         }
 
         const date = jakartaDateKey(
@@ -366,51 +468,76 @@ export async function getInventoryAnalytics(
 
         if (!entry) continue;
 
-        const type = transaction.transaction_type;
+        const type =
+          transaction.transaction_type;
 
+        // Count transactions, not quantities.
         entry[type] += 1;
         totals[type] += 1;
         transactionCount += 1;
 
-        if (type === "usage" || type === "waste") {
-          const quantity = Number(transaction.quantity);
-
-          if (!Number.isFinite(quantity) || quantity < 0) {
-            throw new Error(
-              "Ditemukan kuantitas transaksi tidak valid."
-            );
-          }
-
+        if (type === "usage") {
           updateItemActivity(
-            type === "usage" ? usageMap : wasteMap,
+            usageMap,
+            transaction.item_id,
+            quantity
+          );
+        }
+
+        if (type === "waste") {
+          updateItemActivity(
+            wasteMap,
             transaction.item_id,
             quantity
           );
         }
       }
 
-      if (rows.length < BATCH_SIZE) break;
+      if (rows.length < BATCH_SIZE) {
+        break;
+      }
 
-      offset += BATCH_SIZE;
+      const last = rows[rows.length - 1];
+
+      cursorCreatedAt = last.created_at;
+      cursorId = last.id;
     }
-  } finally {
-    // Observe metadata errors even if transaction processing fails.
-    await itemInfoPromise.catch(() => undefined);
+  } catch (error) {
+    // Avoid an unhandled rejection from an
+    // inventory promise supplied by the caller.
+    await options.inventoryPromise?.catch(
+      () => undefined
+    );
+    throw error;
   }
 
-  const itemInfo = await itemInfoPromise;
+  const relevantItemIds = [
+    ...new Set([
+      ...usageMap.keys(),
+      ...wasteMap.keys(),
+    ]),
+  ];
 
-  const topUsedMaterials = buildItemActivity(
-    usageMap,
-    itemInfo
-  ).filter(
-    (item) => item.category === "raw_material"
-  );
+  const itemInfo =
+    await resolveItemInformation(
+      relevantItemIds,
+      options.inventoryPromise
+    );
 
-  const wasteMonitoring = buildItemActivity(
-    wasteMap,
-    itemInfo
-  );
+  const topUsedMaterials =
+    buildItemActivity(
+      usageMap,
+      itemInfo
+    ).filter(
+      (item) =>
+        item.category === "raw_material"
+    );
+
+  const wasteMonitoring =
+    buildItemActivity(
+      wasteMap,
+      itemInfo
+    );
 
   if (shouldMeasurePerformance) {
     console.info(

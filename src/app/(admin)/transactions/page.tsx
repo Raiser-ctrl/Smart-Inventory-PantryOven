@@ -1,18 +1,16 @@
 
 import Link from "next/link";
-
 import {
   redirect,
   unstable_rethrow,
 } from "next/navigation";
-
 import {
   ChevronLeft,
   ChevronRight,
   History,
 } from "lucide-react";
 
-import { requireAdmin } from "@/lib/auth";
+import { requireApprovedUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 import {
@@ -31,7 +29,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
@@ -77,26 +74,18 @@ const validTypes: TransactionType[] = [
   "waste",
 ];
 
-const quantityFormatter = new Intl.NumberFormat(
-  "id-ID",
-  {
-    maximumFractionDigits: 2,
-  }
-);
+const quantityFormatter = new Intl.NumberFormat("id-ID", {
+  maximumFractionDigits: 2,
+});
 
-function getFirstParam(
-  value?: string | string[]
-) {
+function getFirstParam(value?: string | string[]) {
   return Array.isArray(value)
     ? value[0] ?? ""
     : value ?? "";
 }
 
 function escapeLike(value: string) {
-  return value.replace(
-    /[\\%_]/g,
-    "\\$&"
-  );
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function buildPageUrl(
@@ -144,7 +133,9 @@ function buildPageUrl(
 export default async function TransactionsPage({
   searchParams,
 }: PageProps) {
-  await requireAdmin();
+  // Allow active Admin and Staff accounts.
+  // Suspended and pending accounts remain blocked.
+  await requireApprovedUser();
 
   const params = await searchParams;
 
@@ -217,9 +208,7 @@ export default async function TransactionsPage({
       targetPage
     );
 
-  const statusUrl = (
-    targetStatus: ArchiveStatus
-  ) =>
+  const statusUrl = (targetStatus: ArchiveStatus) =>
     buildPageUrl(
       search,
       type,
@@ -235,12 +224,9 @@ export default async function TransactionsPage({
   let errorMessage = "";
 
   try {
-    // ======================================
-    // SEARCH ITEMS
-    // ======================================
-
     let matchingItemIds: string[] | null = null;
 
+    // Search inventory items by name
     if (search && !hasInvalidRange) {
       const safeSearch = escapeLike(search);
 
@@ -265,10 +251,7 @@ export default async function TransactionsPage({
         matchingItemIds.length > 0
       )
     ) {
-      // ====================================
-      // COUNT TRANSACTIONS
-      // ====================================
-
+      // Count matching transactions
       let countQuery = supabaseAdmin
         .from("stock_transactions")
         .select(
@@ -340,10 +323,7 @@ export default async function TransactionsPage({
           redirect(pageUrl(totalPages));
         }
 
-        // ==================================
-        // FETCH TRANSACTIONS
-        // ==================================
-
+        // Fetch paginated transaction history
         let query = supabaseAdmin
           .from("stock_transactions")
           .select(
@@ -424,10 +404,7 @@ export default async function TransactionsPage({
           throw error;
         }
 
-        // ==================================
-        // FORMAT HISTORY
-        // ==================================
-
+        // Format history for the UI
         history = (data ?? []).map((row) => {
           const itemRelation = row.item;
 
@@ -463,10 +440,6 @@ export default async function TransactionsPage({
     errorMessage =
       "Riwayat transaksi belum dapat dimuat.";
   }
-
-  // ======================================
-  // PAGINATION
-  // ======================================
 
   const totalPages = Math.max(
     1,
@@ -509,14 +482,14 @@ export default async function TransactionsPage({
   return (
     <main className="min-w-0 bg-background px-4 py-5 sm:px-6 md:px-8 md:py-8">
       <div className="mx-auto max-w-7xl space-y-6">
-        {/* ==================================
-            PAGE HEADER
-        ================================== */}
-
+        {/* Page header */}
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <h1 className="flex items-center gap-3 text-2xl font-semibold tracking-tight md:text-3xl">
-              <History className="size-7 shrink-0" />
+              <History
+                aria-hidden="true"
+                className="size-7 shrink-0"
+              />
               Transaction History
             </h1>
 
@@ -534,10 +507,7 @@ export default async function TransactionsPage({
           />
         </header>
 
-        {/* ==================================
-            FILTERS
-        ================================== */}
-
+        {/* Filters */}
         <TransactionFilters
           key={`${search}:${type}:${status}:${period}:${customStartDate}:${customEndDate}`}
           search={search}
@@ -548,10 +518,7 @@ export default async function TransactionsPage({
           endDate={customEndDate}
         />
 
-        {/* ==================================
-            ARCHIVE STATUS TABS
-        ================================== */}
-
+        {/* Archive status tabs */}
         <nav
           className="flex flex-wrap items-center gap-2"
           aria-label="Transaction archive status"
@@ -586,10 +553,7 @@ export default async function TransactionsPage({
           })}
         </nav>
 
-        {/* ==================================
-            TRANSACTION HISTORY
-        ================================== */}
-
+        {/* Transaction history */}
         <Card className="min-w-0 overflow-hidden">
           <CardHeader className="space-y-1 border-b pb-4">
             <CardTitle className="text-base font-semibold sm:text-lg">
@@ -621,10 +585,7 @@ export default async function TransactionsPage({
                   hasInvalidRange={hasInvalidRange}
                 />
 
-                {/* ==========================
-                    PAGINATION
-                ========================== */}
-
+                {/* Pagination */}
                 <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="space-y-1">
                     <p className="text-sm font-medium">
@@ -645,10 +606,11 @@ export default async function TransactionsPage({
                         size="sm"
                         asChild
                       >
-                        <Link
-                          href={pageUrl(page - 1)}
-                        >
-                          <ChevronLeft className="size-4" />
+                        <Link href={pageUrl(page - 1)}>
+                          <ChevronLeft
+                            aria-hidden="true"
+                            className="size-4"
+                          />
                           Previous
                         </Link>
                       </Button>
@@ -658,7 +620,10 @@ export default async function TransactionsPage({
                         size="sm"
                         disabled
                       >
-                        <ChevronLeft className="size-4" />
+                        <ChevronLeft
+                          aria-hidden="true"
+                          className="size-4"
+                        />
                         Previous
                       </Button>
                     )}
@@ -669,11 +634,12 @@ export default async function TransactionsPage({
                         size="sm"
                         asChild
                       >
-                        <Link
-                          href={pageUrl(page + 1)}
-                        >
+                        <Link href={pageUrl(page + 1)}>
                           Next
-                          <ChevronRight className="size-4" />
+                          <ChevronRight
+                            aria-hidden="true"
+                            className="size-4"
+                          />
                         </Link>
                       </Button>
                     ) : (
@@ -683,7 +649,10 @@ export default async function TransactionsPage({
                         disabled
                       >
                         Next
-                        <ChevronRight className="size-4" />
+                        <ChevronRight
+                          aria-hidden="true"
+                          className="size-4"
+                        />
                       </Button>
                     )}
                   </div>
