@@ -1,7 +1,12 @@
 
 "use client";
 
-import { useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Pencil } from "lucide-react";
 
@@ -24,6 +29,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+const MAX_NAME_LENGTH = 150;
+const MAX_STOCK = 1_000_000_000;
+
+const VALID_CATEGORIES = [
+  "raw_material",
+  "finished_product",
+] as const;
+
+const VALID_UNITS = [
+  "kg",
+  "pcs",
+  "liter",
+  "gram",
+] as const;
+
 type EditableItem = {
   id: string;
   name: string;
@@ -41,7 +61,7 @@ type Props = {
 };
 
 type ApiResponse = {
-  success: boolean;
+  success?: boolean;
   message?: string;
 };
 
@@ -56,7 +76,10 @@ export function EditItemDialog({
 
   const [internalOpen, setInternalOpen] = useState(false);
 
-  const open = controlledOpen ?? internalOpen;
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled
+    ? controlledOpen
+    : internalOpen;
 
   const [name, setName] = useState(item.name);
   const [category, setCategory] = useState(item.category);
@@ -68,6 +91,13 @@ export function EditItemDialog({
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Synchronous protection against duplicate requests.
+  const submittingRef = useRef(false);
+
+  // Track dialog transitions and the selected item.
+  const previousOpenRef = useRef(open);
+  const previousItemIdRef = useRef(item.id);
+
   function resetForm() {
     setName(item.name);
     setCategory(item.category);
@@ -76,22 +106,56 @@ export function EditItemDialog({
     setError("");
   }
 
-  function handleOpenChange(nextOpen: boolean) {
-    if (isSubmitting) return;
+  // Synchronize form when the controlled dialog opens
+  // or the selected item changes.
+  useEffect(() => {
+    const wasOpen = previousOpenRef.current;
+    const previousItemId = previousItemIdRef.current;
 
-    if (nextOpen) {
-      resetForm();
+    const justOpened = open && !wasOpen;
+    const itemChanged = item.id !== previousItemId;
+
+    if (
+      open &&
+      (justOpened || itemChanged) &&
+      !submittingRef.current
+    ) {
+      setName(item.name);
+      setCategory(item.category);
+      setUnit(item.unit);
+      setMinimumStock(String(item.minimum_stock));
+      setError("");
     }
 
-    if (onOpenChange) {
-      onOpenChange(nextOpen);
+    previousOpenRef.current = open;
+    previousItemIdRef.current = item.id;
+  }, [
+    open,
+    item.id,
+    item.name,
+    item.category,
+    item.unit,
+    item.minimum_stock,
+  ]);
+
+  function updateOpen(nextOpen: boolean) {
+    if (isControlled) {
+      onOpenChange?.(nextOpen);
     } else {
       setInternalOpen(nextOpen);
     }
+  }
 
-    if (!nextOpen) {
+  function handleOpenChange(nextOpen: boolean) {
+    if (submittingRef.current) return;
+
+    if (nextOpen) {
+      resetForm();
+    } else {
       setError("");
     }
+
+    updateOpen(nextOpen);
   }
 
   async function handleSubmit(
@@ -99,41 +163,59 @@ export function EditItemDialog({
   ) {
     event.preventDefault();
 
-    if (isSubmitting) return;
+    if (submittingRef.current) return;
 
     setError("");
 
     const trimmedName = name.trim();
+
+    if (
+      !trimmedName ||
+      trimmedName.length > MAX_NAME_LENGTH
+    ) {
+      setError(
+        "Nama barang wajib diisi dan maksimal 150 karakter."
+      );
+      return;
+    }
+
+    if (
+      !VALID_CATEGORIES.some(
+        (value) => value === category
+      )
+    ) {
+      setError("Kategori barang tidak valid.");
+      return;
+    }
+
+    if (
+      !VALID_UNITS.some(
+        (value) => value === unit
+      )
+    ) {
+      setError("Satuan barang tidak valid.");
+      return;
+    }
+
+    if (minimumStock.trim() === "") {
+      setError("Minimum stok wajib diisi.");
+      return;
+    }
+
     const minimum = Number(minimumStock);
 
-    if (!trimmedName || trimmedName.length > 150) {
-      setError(
-        "Nama barang wajib diisi, maksimal 150 karakter."
-      );
-      return;
-    }
-
     if (
-      !["raw_material", "finished_product"].includes(
-        category
-      ) ||
-      !["kg", "pcs", "liter", "gram"].includes(unit)
-    ) {
-      setError("Kategori atau satuan tidak valid.");
-      return;
-    }
-
-    if (
-      minimumStock.trim() === "" ||
       !Number.isFinite(minimum) ||
-      minimum < 0
+      minimum < 0 ||
+      minimum > MAX_STOCK
     ) {
       setError(
-        "Minimum stok harus berupa angka tidak negatif."
+        "Minimum stok harus berupa angka antara 0 dan 1.000.000.000."
       );
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -141,10 +223,11 @@ export function EditItemDialog({
         `/api/v1/items/${encodeURIComponent(item.id)}`,
         {
           method: "PATCH",
+          credentials: "same-origin",
+          cache: "no-store",
           headers: {
             "Content-Type": "application/json",
           },
-          credentials: "same-origin",
           body: JSON.stringify({
             name: trimmedName,
             category,
@@ -154,33 +237,52 @@ export function EditItemDialog({
         }
       );
 
-      const result: ApiResponse = await response.json();
+      const result: ApiResponse | null =
+        await response.json().catch(() => null);
 
-      if (!response.ok || !result.success) {
+      if (!response.ok || result?.success !== true) {
         throw new Error(
-          result.message ?? "Gagal memperbarui barang."
+          result?.message ??
+            "Gagal memperbarui barang. Silakan coba lagi."
         );
       }
 
-      handleOpenChange(false);
+      // Close directly after confirmed success.
+      // Do not call handleOpenChange(false) here:
+      // its submitting guard would block closing.
+      setError("");
+      updateOpen(false);
+
+      // Notify parent workspace.
       onSuccess?.();
+
+      // Refresh Server Components inventory data.
       router.refresh();
-    } catch (error) {
+    } catch (caughtError) {
       setError(
-        error instanceof Error
-          ? error.message
+        caughtError instanceof Error
+          ? caughtError.message
           : "Terjadi kesalahan saat memperbarui barang."
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+    >
       {!hideTrigger && (
         <DialogTrigger asChild>
-          <Button variant="outline" size="sm">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isSubmitting}
+          >
             <Pencil className="mr-2 size-4" />
             Edit
           </Button>
@@ -189,18 +291,26 @@ export function EditItemDialog({
 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Item</DialogTitle>
+          <DialogTitle>
+            Edit Item
+          </DialogTitle>
+
           <DialogDescription>
             Update item information. Stock changes must be
             recorded through Stock Transaction.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-4"
+        >
+          {/* Item Name */}
           <div className="space-y-2">
             <Label htmlFor={`edit-name-${item.id}`}>
               Item Name
             </Label>
+
             <Input
               id={`edit-name-${item.id}`}
               value={name}
@@ -208,15 +318,17 @@ export function EditItemDialog({
                 setName(event.target.value)
               }
               disabled={isSubmitting}
-              maxLength={150}
+              maxLength={MAX_NAME_LENGTH}
               required
             />
           </div>
 
+          {/* Category */}
           <div className="space-y-2">
             <Label htmlFor={`edit-category-${item.id}`}>
               Category
             </Label>
+
             <Select
               value={category}
               onValueChange={setCategory}
@@ -228,10 +340,12 @@ export function EditItemDialog({
               >
                 <SelectValue placeholder="Select category" />
               </SelectTrigger>
+
               <SelectContent>
                 <SelectItem value="raw_material">
                   Raw Material
                 </SelectItem>
+
                 <SelectItem value="finished_product">
                   Finished Product
                 </SelectItem>
@@ -239,10 +353,12 @@ export function EditItemDialog({
             </Select>
           </div>
 
+          {/* Unit */}
           <div className="space-y-2">
             <Label htmlFor={`edit-unit-${item.id}`}>
               Unit
             </Label>
+
             <Select
               value={unit}
               onValueChange={setUnit}
@@ -254,16 +370,20 @@ export function EditItemDialog({
               >
                 <SelectValue placeholder="Select unit" />
               </SelectTrigger>
+
               <SelectContent>
                 <SelectItem value="kg">
                   Kilogram (kg)
                 </SelectItem>
+
                 <SelectItem value="pcs">
                   Pieces (pcs)
                 </SelectItem>
+
                 <SelectItem value="liter">
                   Liter
                 </SelectItem>
+
                 <SelectItem value="gram">
                   Gram
                 </SelectItem>
@@ -271,14 +391,17 @@ export function EditItemDialog({
             </Select>
           </div>
 
+          {/* Minimum Stock */}
           <div className="space-y-2">
             <Label htmlFor={`edit-minimum-${item.id}`}>
               Minimum Stock
             </Label>
+
             <Input
               id={`edit-minimum-${item.id}`}
               type="number"
               min="0"
+              max={MAX_STOCK}
               step="any"
               value={minimumStock}
               onChange={(event) =>
@@ -289,6 +412,7 @@ export function EditItemDialog({
             />
           </div>
 
+          {/* Error Message */}
           {error && (
             <p
               role="alert"
@@ -298,6 +422,7 @@ export function EditItemDialog({
             </p>
           )}
 
+          {/* Actions */}
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -308,7 +433,10 @@ export function EditItemDialog({
               Cancel
             </Button>
 
-            <Button type="submit" disabled={isSubmitting}>
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+            >
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" />

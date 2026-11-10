@@ -1,13 +1,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { verifyApiStaff } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const headers = {
+const responseHeaders = {
   "Cache-Control": "private, no-store",
+  "X-Content-Type-Options": "nosniff",
 };
 
 const VALID_CATEGORIES = [
@@ -22,9 +24,17 @@ const VALID_UNITS = [
   "gram",
 ] as const;
 
-const MAX_STOCK = 1_000_000_000;
+const ALLOWED_UPDATE_FIELDS = new Set([
+  "name",
+  "category",
+  "unit",
+  "minimum_stock",
+]);
 
-const uuidPattern =
+const MAX_STOCK = 1_000_000_000;
+const MAX_NAME_LENGTH = 150;
+
+const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type RouteContext = {
@@ -38,57 +48,21 @@ type ItemInput = {
   minimum_stock: number;
 };
 
+// Return consistent API errors
 function jsonError(message: string, status: number) {
   return NextResponse.json(
-    { success: false, message },
-    { status, headers }
+    {
+      success: false,
+      message,
+    },
+    {
+      status,
+      headers: responseHeaders,
+    }
   );
 }
 
-// ==========================================
-// AUTHORIZATION
-// ==========================================
-
-async function verifyAdmin() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    return jsonError(
-      "Unauthorized. Silakan login terlebih dahulu.",
-      401
-    );
-  }
-
-  const adminUserId = process.env.ADMIN_USER_ID;
-
-  if (!adminUserId) {
-    console.error("ADMIN_USER_ID belum dikonfigurasi.");
-
-    return jsonError(
-      "Konfigurasi server belum lengkap.",
-      500
-    );
-  }
-
-  if (user.id !== adminUserId) {
-    return jsonError(
-      "Forbidden. Hanya admin yang dapat mengubah data.",
-      403
-    );
-  }
-
-  return null;
-}
-
-// ==========================================
-// REQUEST SECURITY
-// ==========================================
-
+// Verify same-origin mutations
 function verifyOrigin(request: NextRequest) {
   const configuredOrigin =
     process.env.APP_ORIGIN ??
@@ -100,7 +74,7 @@ function verifyOrigin(request: NextRequest) {
     console.error("APP_ORIGIN belum dikonfigurasi.");
 
     return jsonError(
-      "APP_ORIGIN belum dikonfigurasi.",
+      "Konfigurasi origin server belum lengkap.",
       500
     );
   }
@@ -142,6 +116,7 @@ function verifyOrigin(request: NextRequest) {
   return null;
 }
 
+// Validate JSON requests
 function verifyJsonContentType(request: NextRequest) {
   const contentType =
     request.headers.get("content-type") ?? "";
@@ -156,22 +131,18 @@ function verifyJsonContentType(request: NextRequest) {
   return null;
 }
 
+// Authorize write operations
 async function verifyMutation(request: NextRequest) {
-  const authError = await verifyAdmin();
+  const auth = await verifyApiStaff();
 
-  if (authError) return authError;
+  if (!auth.authorized) {
+    return jsonError(auth.message, auth.status);
+  }
 
-  const originError = verifyOrigin(request);
-
-  if (originError) return originError;
-
-  return null;
+  return verifyOrigin(request);
 }
 
-// ==========================================
-// INPUT VALIDATION
-// ==========================================
-
+// Validate inventory update payload
 function validateItemInput(
   body: unknown
 ):
@@ -190,16 +161,10 @@ function validateItemInput(
 
   const input = body as Record<string, unknown>;
 
-  const allowedFields = [
-    "name",
-    "category",
-    "unit",
-    "minimum_stock",
-  ];
-
+  // Reject unexpected fields
   if (
     Object.keys(input).some(
-      (key) => !allowedFields.includes(key)
+      (key) => !ALLOWED_UPDATE_FIELDS.has(key)
     )
   ) {
     return {
@@ -217,7 +182,11 @@ function validateItemInput(
   const unit = input.unit;
   const minimumStock = input.minimum_stock;
 
-  if (name.length === 0 || name.length > 150) {
+  // Validate item name
+  if (
+    name.length === 0 ||
+    name.length > MAX_NAME_LENGTH
+  ) {
     return {
       valid: false,
       message:
@@ -225,6 +194,7 @@ function validateItemInput(
     };
   }
 
+  // Validate category
   if (
     typeof category !== "string" ||
     !VALID_CATEGORIES.some(
@@ -237,6 +207,7 @@ function validateItemInput(
     };
   }
 
+  // Validate unit
   if (
     typeof unit !== "string" ||
     !VALID_UNITS.some(
@@ -249,6 +220,7 @@ function validateItemInput(
     };
   }
 
+  // Validate minimum stock
   if (
     typeof minimumStock !== "number" ||
     !Number.isFinite(minimumStock) ||
@@ -273,10 +245,7 @@ function validateItemInput(
   };
 }
 
-// ==========================================
-// TRANSACTION HISTORY
-// ==========================================
-
+// Check whether an item has transaction history
 async function hasTransactions(itemId: string) {
   const { data, error } = await supabaseAdmin
     .from("stock_transactions")
@@ -284,41 +253,49 @@ async function hasTransactions(itemId: string) {
     .eq("item_id", itemId)
     .limit(1);
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
 
-  return (data?.length ?? 0) > 0;
+  return Boolean(data?.length);
 }
 
-// ==========================================
 // PATCH /api/v1/items/[id]
-// ==========================================
-
 export async function PATCH(
   request: NextRequest,
   context: RouteContext
 ) {
   try {
+    // Verify account permissions and origin
     const securityError = await verifyMutation(request);
 
-    if (securityError) return securityError;
+    if (securityError) {
+      return securityError;
+    }
 
     const { id } = await context.params;
 
-    if (!uuidPattern.test(id)) {
+    if (!UUID_REGEX.test(id)) {
       return jsonError("ID barang tidak valid.", 400);
     }
 
     const contentTypeError =
       verifyJsonContentType(request);
 
-    if (contentTypeError) return contentTypeError;
+    if (contentTypeError) {
+      return contentTypeError;
+    }
 
+    // Parse request body
     let body: unknown;
 
     try {
       body = await request.json();
     } catch {
-      return jsonError("Format JSON tidak valid.", 400);
+      return jsonError(
+        "Format JSON tidak valid.",
+        400
+      );
     }
 
     const validation = validateItemInput(body);
@@ -334,8 +311,7 @@ export async function PATCH(
       minimum_stock,
     } = validation.data;
 
-    // Atomic update via PostgreSQL RPC.
-    // The RPC locks the item row and checks transaction history.
+    // Update item atomically through PostgreSQL RPC
     const { data, error } = await supabaseAdmin.rpc(
       "update_inventory_item",
       {
@@ -348,13 +324,16 @@ export async function PATCH(
     );
 
     if (error) {
-      const errorMessage = error.message;
+      const message = error.message;
 
-      if (errorMessage.includes("ITEM_NOT_FOUND")) {
-        return jsonError("Barang tidak ditemukan.", 404);
+      if (message.includes("ITEM_NOT_FOUND")) {
+        return jsonError(
+          "Barang tidak ditemukan.",
+          404
+        );
       }
 
-      if (errorMessage.includes("ITEM_ARCHIVED")) {
+      if (message.includes("ITEM_ARCHIVED")) {
         return jsonError(
           "Barang sudah diarsipkan. Aktifkan kembali sebelum mengedit barang.",
           409
@@ -362,7 +341,7 @@ export async function PATCH(
       }
 
       if (
-        errorMessage.includes(
+        message.includes(
           "UNIT_CHANGE_HAS_TRANSACTIONS"
         )
       ) {
@@ -372,17 +351,18 @@ export async function PATCH(
         );
       }
 
-      if (errorMessage.includes("INVALID_ITEM_INPUT")) {
+      if (message.includes("INVALID_ITEM_INPUT")) {
         return jsonError(
           "Data barang tidak valid.",
           400
         );
       }
 
-      console.error(
-        "PATCH item RPC error:",
-        error.message
-      );
+      console.error("PATCH item RPC error:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
 
       return jsonError(
         "Gagal memperbarui barang.",
@@ -390,10 +370,14 @@ export async function PATCH(
       );
     }
 
-    if (!data) {
+    if (!data || typeof data !== "object") {
+      console.error(
+        "PATCH item RPC returned invalid data."
+      );
+
       return jsonError(
-        "Barang tidak ditemukan.",
-        404
+        "Respons database tidak valid.",
+        500
       );
     }
 
@@ -410,34 +394,41 @@ export async function PATCH(
           minimum_stock: data.minimum_stock,
         },
       },
-      { status: 200, headers }
+      {
+        status: 200,
+        headers: responseHeaders,
+      }
     );
   } catch (error) {
-    console.error("PATCH items error:", error);
+    console.error(
+      "PATCH items unexpected error:",
+      error
+    );
 
     return jsonError("Internal Server Error", 500);
   }
 }
 
-// ==========================================
 // DELETE /api/v1/items/[id]
-// ==========================================
-
 export async function DELETE(
   request: NextRequest,
   context: RouteContext
 ) {
   try {
+    // Verify account permissions and origin
     const securityError = await verifyMutation(request);
 
-    if (securityError) return securityError;
+    if (securityError) {
+      return securityError;
+    }
 
     const { id } = await context.params;
 
-    if (!uuidPattern.test(id)) {
+    if (!UUID_REGEX.test(id)) {
       return jsonError("ID barang tidak valid.", 400);
     }
 
+    // Read item state
     const { data: existing, error: lookupError } =
       await supabaseAdmin
         .from("items")
@@ -445,10 +436,23 @@ export async function DELETE(
         .eq("id", id)
         .maybeSingle();
 
-    if (lookupError) throw lookupError;
+    if (lookupError) {
+      console.error("DELETE item lookup error:", {
+        code: lookupError.code,
+        message: lookupError.message,
+      });
+
+      return jsonError(
+        "Gagal memeriksa data barang.",
+        500
+      );
+    }
 
     if (!existing) {
-      return jsonError("Barang tidak ditemukan.", 404);
+      return jsonError(
+        "Barang tidak ditemukan.",
+        404
+      );
     }
 
     if (existing.archived_at !== null) {
@@ -458,6 +462,7 @@ export async function DELETE(
       );
     }
 
+    // Prevent deleting items with transaction history
     if (await hasTransactions(id)) {
       return jsonError(
         "Barang tidak dapat dihapus karena memiliki riwayat transaksi.",
@@ -465,6 +470,7 @@ export async function DELETE(
       );
     }
 
+    // Delete only active items
     const { data, error } = await supabaseAdmin
       .from("items")
       .delete()
@@ -474,6 +480,7 @@ export async function DELETE(
       .maybeSingle();
 
     if (error) {
+      // Foreign key protects concurrent transactions
       if (error.code === "23503") {
         return jsonError(
           "Barang tidak dapat dihapus karena masih digunakan oleh data lain.",
@@ -481,10 +488,11 @@ export async function DELETE(
         );
       }
 
-      console.error(
-        "DELETE item error:",
-        error.message
-      );
+      console.error("DELETE item error:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
 
       return jsonError(
         "Gagal menghapus barang.",
@@ -504,10 +512,16 @@ export async function DELETE(
         success: true,
         message: "Barang berhasil dihapus.",
       },
-      { status: 200, headers }
+      {
+        status: 200,
+        headers: responseHeaders,
+      }
     );
   } catch (error) {
-    console.error("DELETE items error:", error);
+    console.error(
+      "DELETE items unexpected error:",
+      error
+    );
 
     return jsonError("Internal Server Error", 500);
   }

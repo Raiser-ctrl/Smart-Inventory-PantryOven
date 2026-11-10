@@ -11,6 +11,9 @@ export const config = {
   matcher: [
     "/login",
     "/register",
+    "/forgot-password",
+    "/reset-password",
+
     "/pending",
     "/suspended",
     "/unauthorized",

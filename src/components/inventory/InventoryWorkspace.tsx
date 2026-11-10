@@ -2,9 +2,11 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
   type PointerEvent,
 } from "react";
 import Link from "next/link";
@@ -87,6 +89,11 @@ type ActionResult = {
   action: BulkAction;
   succeeded: number;
   failures: ActionFailure[];
+};
+
+type ApiResponse = {
+  success?: boolean;
+  message?: string;
 };
 
 const TAB_ORDER: InventoryStatus[] = [
@@ -184,13 +191,19 @@ export default function InventoryWorkspace({
   const [pendingAction, setPendingAction] =
     useState<BulkAction | null>(null);
 
+  const [pendingTargets, setPendingTargets] =
+    useState<InventoryItem[]>([]);
+
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
 
   const [actionResult, setActionResult] =
     useState<ActionResult | null>(null);
 
-  // Touch gesture state
+  // Synchronous protection against duplicate requests.
+  const processingRef = useRef(false);
+
+  // Long-press gesture state.
   const holdTimer = useRef<
     ReturnType<typeof setTimeout> | null
   >(null);
@@ -199,6 +212,54 @@ export default function InventoryWorkspace({
   const longPressTriggered = useRef(false);
   const suppressNextClick = useRef(false);
 
+  // Synchronize tabs with browser Back/Forward.
+  useEffect(() => {
+    function handlePopState() {
+      if (processingRef.current) return;
+
+      const params = new URLSearchParams(
+        window.location.search
+      );
+
+      const value = params.get("status");
+
+      const nextStatus: InventoryStatus =
+        value === "archived" || value === "all"
+          ? value
+          : "active";
+
+      setStatus(nextStatus);
+      setSelectedIds([]);
+      setActionResult(null);
+
+      if (nextStatus === "archived") {
+        setStockFilter("all");
+      }
+    }
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener(
+        "popstate",
+        handlePopState
+      );
+    };
+  }, []);
+
+  // Cleanup long-press timer on unmount.
+  useEffect(() => {
+    const timerRef = holdTimer;
+
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Inventory calculations.
   const activeItems = useMemo(
     () => items.filter((item) => !isArchived(item)),
     [items]
@@ -231,8 +292,13 @@ export default function InventoryWorkspace({
     return items.filter((item) => {
       const archived = isArchived(item);
 
-      if (status === "active" && archived) return false;
-      if (status === "archived" && !archived) return false;
+      if (status === "active" && archived) {
+        return false;
+      }
+
+      if (status === "archived" && !archived) {
+        return false;
+      }
 
       if (
         category !== "all" &&
@@ -264,32 +330,31 @@ export default function InventoryWorkspace({
 
       return true;
     });
-  }, [
-    items,
-    status,
-    category,
-    search,
-    stockFilter,
-  ]);
+  }, [items, status, category, search, stockFilter]);
 
   const visibleIds = useMemo(
     () => filteredItems.map((item) => item.id),
     [filteredItems]
   );
 
+  const selectedIdSet = useMemo(
+    () => new Set(selectedIds),
+    [selectedIds]
+  );
+
   const selectedItems = useMemo(
     () =>
       filteredItems.filter((item) =>
-        selectedIds.includes(item.id)
+        selectedIdSet.has(item.id)
       ),
-    [filteredItems, selectedIds]
+    [filteredItems, selectedIdSet]
   );
 
   const selectedCount = selectedItems.length;
 
   const allSelected =
     visibleIds.length > 0 &&
-    visibleIds.every((id) => selectedIds.includes(id));
+    visibleIds.every((id) => selectedIdSet.has(id));
 
   const hasActiveSelection = selectedItems.some(
     (item) => !isArchived(item)
@@ -310,6 +375,9 @@ export default function InventoryWorkspace({
 
   const canDelete =
     selectedCount > 0 && !hasArchivedSelection;
+
+  const interactionLocked =
+    processing || pendingAction !== null;
 
   const statusTabs = [
     {
@@ -338,17 +406,33 @@ export default function InventoryWorkspace({
     Number(category !== "all") +
     Number(stockFilter !== "all");
 
-  function clearSelection() {
+  function resetSelectionForFilter() {
     setSelectedIds([]);
     setActionResult(null);
   }
 
+  function clearSelection() {
+    if (processingRef.current || pendingAction !== null) {
+      return;
+    }
+
+    resetSelectionForFilter();
+  }
+
   function exitSelection() {
+    if (processingRef.current || pendingAction !== null) {
+      return;
+    }
+
     setSelectionMode(false);
-    clearSelection();
+    resetSelectionForFilter();
   }
 
   function toggleSelection(id: string) {
+    if (processingRef.current || pendingAction !== null) {
+      return;
+    }
+
     setActionResult(null);
 
     setSelectedIds((previous) =>
@@ -359,24 +443,45 @@ export default function InventoryWorkspace({
   }
 
   function enterSelection(id?: string) {
+    if (processingRef.current || pendingAction !== null) {
+      return;
+    }
+
     setSelectionMode(true);
     setActionResult(null);
     setSelectedIds(id ? [id] : []);
   }
 
   function toggleSelectAll() {
+    if (processingRef.current || pendingAction !== null) {
+      return;
+    }
+
     setActionResult(null);
 
-    setSelectedIds(allSelected ? [] : visibleIds);
-  }
+    setSelectedIds((previous) => {
+      if (allSelected) {
+        const visible = new Set(visibleIds);
 
-  function resetSelectionForFilter() {
-    setSelectedIds([]);
-    setActionResult(null);
+        return previous.filter(
+          (id) => !visible.has(id)
+        );
+      }
+
+      return [
+        ...new Set([...previous, ...visibleIds]),
+      ];
+    });
   }
 
   function changeStatus(next: InventoryStatus) {
-    if (status === next) return;
+    if (
+      status === next ||
+      processingRef.current ||
+      pendingAction !== null
+    ) {
+      return;
+    }
 
     setStatus(next);
     resetSelectionForFilter();
@@ -385,19 +490,33 @@ export default function InventoryWorkspace({
       setStockFilter("all");
     }
 
-    const url =
-      next === "active"
-        ? "/inventory"
-        : `/inventory?status=${next}`;
+    const params = new URLSearchParams(
+      window.location.search
+    );
 
-    window.history.replaceState(null, "", url);
+    if (next === "active") {
+      params.delete("status");
+    } else {
+      params.set("status", next);
+    }
+
+    const query = params.toString();
+
+    const url = query
+      ? `/inventory?${query}`
+      : "/inventory";
+
+    window.history.replaceState(
+      window.history.state,
+      "",
+      url
+    );
   }
 
   function moveTab(direction: -1 | 1) {
     if (
       selectionMode ||
-      processing ||
-      pendingAction !== null ||
+      interactionLocked ||
       editItem !== null
     ) {
       return;
@@ -421,12 +540,15 @@ export default function InventoryWorkspace({
     onSwipeRight: () => moveTab(-1),
     disabled:
       selectionMode ||
-      processing ||
-      pendingAction !== null ||
+      interactionLocked ||
       editItem !== null,
   });
 
   function clearFilters() {
+    if (processingRef.current || pendingAction !== null) {
+      return;
+    }
+
     setSearch("");
     setCategory("all");
     setStockFilter("all");
@@ -448,8 +570,7 @@ export default function InventoryWorkspace({
 
     if (
       selectionMode ||
-      processing ||
-      pendingAction !== null ||
+      interactionLocked ||
       editItem !== null ||
       event.pointerType !== "touch" ||
       !event.isPrimary
@@ -512,7 +633,7 @@ export default function InventoryWorkspace({
   }
 
   function handleContextMenu(
-    event: React.MouseEvent<HTMLElement>
+    event: MouseEvent<HTMLElement>
   ) {
     if (
       selectionMode ||
@@ -523,7 +644,13 @@ export default function InventoryWorkspace({
   }
 
   function openAction(action: BulkAction) {
-    if (processing || selectedCount === 0) return;
+    if (
+      processingRef.current ||
+      pendingAction !== null ||
+      selectedCount === 0
+    ) {
+      return;
+    }
 
     if (
       (action === "archive" && !canArchive) ||
@@ -533,93 +660,129 @@ export default function InventoryWorkspace({
       return;
     }
 
+    // Freeze targets when confirmation opens.
+    setPendingTargets([...selectedItems]);
     setPendingAction(action);
     setActionResult(null);
     setProgress(0);
   }
 
+  function closeAction() {
+    if (processingRef.current) return;
+
+    setPendingAction(null);
+    setPendingTargets([]);
+    setProgress(0);
+  }
+
   async function processBulkAction() {
-    if (!pendingAction || processing) return;
+    if (!pendingAction || processingRef.current) {
+      return;
+    }
 
     const action = pendingAction;
-    const targets = [...selectedItems];
+    const targets = [...pendingTargets];
 
     if (targets.length === 0) return;
 
+    processingRef.current = true;
     setProcessing(true);
     setProgress(0);
 
     const failures: ActionFailure[] = [];
     let succeeded = 0;
+    let completed = 0;
 
-    for (const [index, item] of targets.entries()) {
-      try {
-        const encodedId = encodeURIComponent(item.id);
+    try {
+      for (const item of targets) {
+        try {
+          const encodedId = encodeURIComponent(item.id);
 
-        const endpoint =
-          action === "delete"
-            ? `/api/v1/items/${encodedId}`
-            : `/api/v1/items/${encodedId}/${action}`;
+          const endpoint =
+            action === "delete"
+              ? `/api/v1/items/${encodedId}`
+              : `/api/v1/items/${encodedId}/${action}`;
 
-        const response = await fetch(endpoint, {
-          method:
-            action === "delete" ? "DELETE" : "POST",
-          credentials: "same-origin",
-        });
+          const response = await fetch(endpoint, {
+            method:
+              action === "delete" ? "DELETE" : "POST",
+            credentials: "same-origin",
+            cache: "no-store",
+          });
 
-        const result: {
-          success?: boolean;
-          message?: string;
-        } = await response.json();
+          const result: ApiResponse | null =
+            await response.json().catch(() => null);
 
-        if (!response.ok || !result.success) {
-          throw new Error(
-            result.message ??
-              `Failed to ${action} item.`
-          );
+          if (
+            !response.ok ||
+            result?.success !== true
+          ) {
+            throw new Error(
+              result?.message ??
+                `Failed to ${action} item.`
+            );
+          }
+
+          succeeded += 1;
+        } catch (caughtError) {
+          failures.push({
+            id: item.id,
+            name: item.name,
+            message:
+              caughtError instanceof Error
+                ? caughtError.message
+                : "Unexpected error.",
+          });
         }
 
-        succeeded += 1;
-      } catch (error) {
+        completed += 1;
+        setProgress(completed);
+      }
+    } catch (caughtError) {
+      // Mark any unprocessed items as failures.
+      const remaining = targets.slice(completed);
+
+      for (const item of remaining) {
         failures.push({
           id: item.id,
           name: item.name,
           message:
-            error instanceof Error
-              ? error.message
-              : "Unexpected error.",
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Bulk operation interrupted.",
         });
       }
+    } finally {
+      processingRef.current = false;
+      setProcessing(false);
+      setPendingAction(null);
+      setPendingTargets([]);
+      setProgress(0);
 
-      setProgress(index + 1);
+      setActionResult({
+        action,
+        succeeded,
+        failures,
+      });
+
+      // Keep failed items selected.
+      setSelectedIds(
+        failures.map((failure) => failure.id)
+      );
+
+      router.refresh();
     }
-
-    setProcessing(false);
-    setPendingAction(null);
-
-    setActionResult({
-      action,
-      succeeded,
-      failures,
-    });
-
-    setSelectedIds(
-      failures.map((item) => item.id)
-    );
-
-    router.refresh();
   }
 
-  const actionTargets = selectedItems;
-
-  // Shared action buttons for desktop/tablet/mobile.
   function renderBulkActions() {
     return (
       <>
         {canEdit && (
           <Button
+            type="button"
             variant="outline"
             size="sm"
+            disabled={interactionLocked}
             onClick={() =>
               setEditItem(selectedItems[0])
             }
@@ -631,8 +794,10 @@ export default function InventoryWorkspace({
 
         {canArchive && (
           <Button
+            type="button"
             variant="outline"
             size="sm"
+            disabled={interactionLocked}
             onClick={() => openAction("archive")}
           >
             <Archive className="mr-1.5 size-4" />
@@ -642,8 +807,10 @@ export default function InventoryWorkspace({
 
         {canRestore && (
           <Button
+            type="button"
             variant="outline"
             size="sm"
+            disabled={interactionLocked}
             onClick={() => openAction("restore")}
           >
             <RotateCcw className="mr-1.5 size-4" />
@@ -653,8 +820,10 @@ export default function InventoryWorkspace({
 
         {canDelete && (
           <Button
+            type="button"
             variant="outline"
             size="sm"
+            disabled={interactionLocked}
             className="text-destructive hover:text-destructive"
             onClick={() => openAction("delete")}
           >
@@ -668,6 +837,7 @@ export default function InventoryWorkspace({
 
   return (
     <div className="min-w-0 space-y-4 pb-20 lg:space-y-6 lg:pb-0">
+      {/* Header */}
       <header className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -703,6 +873,7 @@ export default function InventoryWorkspace({
         </div>
       </header>
 
+      {/* Inventory container */}
       <section
         aria-label="Inventory items"
         className="min-w-0 overflow-hidden rounded-xl border bg-card"
@@ -719,10 +890,11 @@ export default function InventoryWorkspace({
                 key={tab.value}
                 type="button"
                 aria-pressed={status === tab.value}
+                disabled={interactionLocked}
                 onClick={() =>
                   changeStatus(tab.value)
                 }
-                className={`min-h-9 shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm ${
+                className={`min-h-9 shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 sm:px-3 sm:text-sm ${
                   status === tab.value
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -745,9 +917,12 @@ export default function InventoryWorkspace({
               <Input
                 value={search}
                 onChange={(event) => {
+                  if (interactionLocked) return;
+
                   setSearch(event.target.value);
                   resetSelectionForFilter();
                 }}
+                disabled={interactionLocked}
                 placeholder="Search items..."
                 aria-label="Search inventory items"
                 className="pl-9"
@@ -786,6 +961,7 @@ export default function InventoryWorkspace({
                   : "outline"
               }
               size="sm"
+              disabled={interactionLocked}
               onClick={() =>
                 selectionMode
                   ? exitSelection()
@@ -819,13 +995,17 @@ export default function InventoryWorkspace({
             <select
               value={category}
               onChange={(event) => {
+                if (interactionLocked) return;
+
                 setCategory(
                   event.target.value as CategoryFilter
                 );
+
                 resetSelectionForFilter();
               }}
+              disabled={interactionLocked}
               aria-label="Filter by category"
-              className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="all">
                 All categories
@@ -841,12 +1021,18 @@ export default function InventoryWorkspace({
             <select
               value={stockFilter}
               onChange={(event) => {
+                if (interactionLocked) return;
+
                 setStockFilter(
                   event.target.value as StockFilter
                 );
+
                 resetSelectionForFilter();
               }}
-              disabled={status === "archived"}
+              disabled={
+                status === "archived" ||
+                interactionLocked
+              }
               aria-label="Filter by stock health"
               className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -868,7 +1054,10 @@ export default function InventoryWorkspace({
               <button
                 type="button"
                 onClick={toggleSelectAll}
-                disabled={filteredItems.length === 0}
+                disabled={
+                  filteredItems.length === 0 ||
+                  interactionLocked
+                }
                 className="inline-flex min-h-8 items-center gap-2 text-xs font-medium disabled:opacity-50"
               >
                 <span
@@ -904,7 +1093,8 @@ export default function InventoryWorkspace({
               <button
                 type="button"
                 onClick={clearFilters}
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                disabled={interactionLocked}
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-50"
               >
                 <X className="size-3.5" />
                 Clear filters
@@ -912,7 +1102,7 @@ export default function InventoryWorkspace({
             </div>
           )}
 
-          {/* Tablet and desktop bulk toolbar */}
+          {/* Desktop bulk toolbar */}
           {selectionMode && selectedCount > 0 && (
             <div className="hidden items-center justify-between gap-3 rounded-lg border bg-muted/40 px-3 py-2.5 md:flex">
               <span className="text-sm font-medium">
@@ -962,9 +1152,12 @@ export default function InventoryWorkspace({
               )}
 
               <Button
+                type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setActionResult(null)}
+                onClick={() =>
+                  setActionResult(null)
+                }
               >
                 Dismiss
               </Button>
@@ -972,11 +1165,10 @@ export default function InventoryWorkspace({
           )}
         </div>
 
-        {/* Tablet and desktop table */}
+        {/* Desktop/tablet table */}
         <div
           {...swipeTabs}
           onPointerDown={(event) => {
-            // Preserve horizontal table scrolling.
             if (
               event.currentTarget.scrollWidth >
               event.currentTarget.clientWidth + 2
@@ -1017,7 +1209,7 @@ export default function InventoryWorkspace({
             <TableBody>
               {filteredItems.map((item) => {
                 const archived = isArchived(item);
-                const selected = selectedIds.includes(
+                const selected = selectedIdSet.has(
                   item.id
                 );
 
@@ -1123,9 +1315,7 @@ export default function InventoryWorkspace({
               {filteredItems.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={
-                      selectionMode ? 6 : 5
-                    }
+                    colSpan={selectionMode ? 6 : 5}
                     className="h-32 text-center text-sm text-muted-foreground"
                   >
                     No matching inventory items found.
@@ -1142,7 +1332,7 @@ export default function InventoryWorkspace({
           className="divide-y border-t md:hidden"
         >
           {filteredItems.map((item) => {
-            const selected = selectedIds.includes(
+            const selected = selectedIdSet.has(
               item.id
             );
 
@@ -1169,6 +1359,7 @@ export default function InventoryWorkspace({
                 onKeyDown={(event) => {
                   if (
                     selectionMode &&
+                    !interactionLocked &&
                     (event.key === "Enter" ||
                       event.key === " ")
                   ) {
@@ -1184,6 +1375,11 @@ export default function InventoryWorkspace({
                 aria-checked={
                   selectionMode
                     ? selected
+                    : undefined
+                }
+                aria-disabled={
+                  selectionMode && interactionLocked
+                    ? true
                     : undefined
                 }
                 tabIndex={
@@ -1230,9 +1426,7 @@ export default function InventoryWorkspace({
                       {" · "}
                       Min{" "}
                       {formatter.format(
-                        Number(
-                          item.minimum_stock
-                        )
+                        Number(item.minimum_stock)
                       )}{" "}
                       {item.unit}
                     </p>
@@ -1241,9 +1435,7 @@ export default function InventoryWorkspace({
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <span className="text-sm font-semibold tabular-nums">
                       {formatter.format(
-                        Number(
-                          item.current_stock
-                        )
+                        Number(item.current_stock)
                       )}{" "}
                       {item.unit}
                     </span>
@@ -1273,6 +1465,7 @@ export default function InventoryWorkspace({
                   variant="outline"
                   size="sm"
                   onClick={clearFilters}
+                  disabled={interactionLocked}
                   className="mt-4"
                 >
                   Clear filters
@@ -1283,7 +1476,7 @@ export default function InventoryWorkspace({
         </div>
       </section>
 
-      {/* Mobile contextual toolbar */}
+      {/* Mobile bulk toolbar */}
       {selectionMode && selectedCount > 0 && (
         <div className="fixed inset-x-3 bottom-3 z-40 rounded-xl border bg-card p-3 shadow-xl md:hidden">
           <div className="mb-2 flex items-center justify-between">
@@ -1294,7 +1487,8 @@ export default function InventoryWorkspace({
             <button
               type="button"
               onClick={clearSelection}
-              className="text-xs text-muted-foreground"
+              disabled={interactionLocked}
+              className="text-xs text-muted-foreground disabled:opacity-50"
             >
               Clear
             </button>
@@ -1306,7 +1500,7 @@ export default function InventoryWorkspace({
         </div>
       )}
 
-      {/* Controlled edit dialog */}
+      {/* Controlled Edit Item dialog */}
       {editItem && (
         <EditItemDialog
           key={editItem.id}
@@ -1337,8 +1531,8 @@ export default function InventoryWorkspace({
       <AlertDialog
         open={pendingAction !== null}
         onOpenChange={(nextOpen) => {
-          if (!nextOpen && !processing) {
-            setPendingAction(null);
+          if (!nextOpen) {
+            closeAction();
           }
         }}
       >
@@ -1348,7 +1542,7 @@ export default function InventoryWorkspace({
               {pendingAction
                 ? `${actionLabel(
                     pendingAction
-                  )} ${actionTargets.length} items?`
+                  )} ${pendingTargets.length} items?`
                 : "Confirm action"}
             </AlertDialogTitle>
 
@@ -1363,7 +1557,7 @@ export default function InventoryWorkspace({
 
           <div className="max-h-40 overflow-y-auto rounded-lg bg-muted/50 p-3">
             <ul className="space-y-1 text-sm">
-              {actionTargets.map((item) => (
+              {pendingTargets.map((item) => (
                 <li key={item.id}>
                   {item.name}
                 </li>
@@ -1378,7 +1572,7 @@ export default function InventoryWorkspace({
             >
               <Loader2 className="size-4 animate-spin" />
               Processing {progress} of{" "}
-              {actionTargets.length}...
+              {pendingTargets.length}...
             </p>
           )}
 
@@ -1390,7 +1584,10 @@ export default function InventoryWorkspace({
             </AlertDialogCancel>
 
             <AlertDialogAction
-              disabled={processing}
+              disabled={
+                processing ||
+                pendingTargets.length === 0
+              }
               className={
                 pendingAction === "delete"
                   ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"

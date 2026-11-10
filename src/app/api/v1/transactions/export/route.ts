@@ -2,9 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 
-import { requireAdmin } from "@/lib/auth";
+import { verifyApiStaff } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-
 import {
   normalizeDate,
   jakartaDateBoundary,
@@ -25,7 +24,6 @@ type ArchiveStatus = "active" | "archived" | "all";
 const BATCH_SIZE = 500;
 const MAX_EXPORT_ROWS = 50_000;
 const MAX_SEARCH_LENGTH = 100;
-
 
 type Transaction = {
   id: string;
@@ -76,29 +74,23 @@ const responseHeaders = {
   "X-Content-Type-Options": "nosniff",
 };
 
+// Return consistent API errors
 function jsonError(message: string, status: number) {
   return NextResponse.json(
     { success: false, message },
-    {
-      status,
-      headers: responseHeaders,
-    }
+    { status, headers: responseHeaders }
   );
 }
 
-// ==========================================
-// INPUT / EXPORT SECURITY
-// ==========================================
-
+// Escape special characters in LIKE searches
 function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+// Prevent spreadsheet formula injection
 function escapeCsv(value: unknown) {
   let text = String(value ?? "");
 
-  // Prevent spreadsheet formula execution when CSV
-  // is opened by Excel or other spreadsheet software.
   if (/^[\s\uFEFF]*[=+\-@]/.test(text)) {
     text = `'${text}`;
   }
@@ -106,6 +98,7 @@ function escapeCsv(value: unknown) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+// Escape potentially unsafe Excel text
 function escapeExcelText(value: string) {
   if (/^[\s\uFEFF]*[=+\-@]/.test(value)) {
     return `'${value}`;
@@ -114,6 +107,7 @@ function escapeExcelText(value: string) {
   return value;
 }
 
+// Generate CSV content
 function createCsv(rows: ExportRow[]) {
   const columns = [
     "Date",
@@ -143,10 +137,8 @@ function createCsv(rows: ExportRow[]) {
   return "\uFEFF" + lines.join("\r\n");
 }
 
-function formatPeriod(
-  startDate: string,
-  endDate: string
-) {
+// Format report period
+function formatPeriod(startDate: string, endDate: string) {
   if (!startDate && !endDate) {
     return "All Time";
   }
@@ -167,10 +159,7 @@ function formatPeriod(
   return `Until ${format(endDate)}`;
 }
 
-// ==========================================
-// EXCEL REPORT
-// ==========================================
-
+// Generate formatted Excel report
 function createExcelReport(
   rows: ExportRow[],
   startDate: string,
@@ -219,7 +208,7 @@ function createExcelReport(
     { key: "notes", width: 44 },
   ];
 
-  // Report title
+  // Set report title
   worksheet.mergeCells("A1:F1");
 
   const titleCell = worksheet.getCell("A1");
@@ -239,7 +228,7 @@ function createExcelReport(
 
   worksheet.getRow(1).height = 32;
 
-  // Period
+  // Set report period
   worksheet.mergeCells("A2:F2");
 
   const periodCell = worksheet.getCell("A2");
@@ -254,7 +243,7 @@ function createExcelReport(
 
   worksheet.getRow(2).height = 22;
 
-  // Filter information
+  // Set report filters
   worksheet.mergeCells("A3:F3");
 
   const selectedType =
@@ -286,7 +275,7 @@ function createExcelReport(
   worksheet.getRow(3).height = 22;
   worksheet.getRow(4).height = 12;
 
-  // Table header
+  // Create table header
   const columns = [
     "Date",
     "Item",
@@ -331,7 +320,7 @@ function createExcelReport(
 
   headerRow.height = 28;
 
-  // Transaction rows
+  // Add transaction rows
   rows.forEach((row, index) => {
     const excelRow = worksheet.addRow({
       date: escapeExcelText(row.date),
@@ -346,10 +335,8 @@ function createExcelReport(
       .split(/\r?\n/)
       .reduce(
         (total, line) =>
-          total + Math.max(
-            1,
-            Math.ceil(line.length / 42)
-          ),
+          total +
+          Math.max(1, Math.ceil(line.length / 42)),
         0
       );
 
@@ -421,7 +408,7 @@ function createExcelReport(
       '+#,##0.##;-#,##0.##;0';
   });
 
-  // Empty state
+  // Display empty report message
   if (rows.length === 0) {
     worksheet.mergeCells("A6:F6");
 
@@ -445,11 +432,8 @@ function createExcelReport(
     worksheet.getRow(6).height = 30;
   }
 
-  // Worksheet settings
-  const lastRow = Math.max(
-    6,
-    5 + rows.length
-  );
+  // Configure worksheet printing and filters
+  const lastRow = Math.max(6, 5 + rows.length);
 
   worksheet.views = [
     { showGridLines: false },
@@ -460,8 +444,7 @@ function createExcelReport(
     to: `F${lastRow}`,
   };
 
-  worksheet.pageSetup.printArea =
-    `A1:F${lastRow}`;
+  worksheet.pageSetup.printArea = `A1:F${lastRow}`;
 
   worksheet.pageSetup.margins = {
     left: 0.3,
@@ -478,20 +461,20 @@ function createExcelReport(
   return workbook;
 }
 
-// ==========================================
-// EXPORT API
-// ==========================================
-
+// Export transactions for active Admin and Staff
 export async function GET(request: NextRequest) {
-  await requireAdmin();
-
   try {
+    const auth = await verifyApiStaff();
+
+    if (!auth.authorized) {
+      return jsonError(auth.message, auth.status);
+    }
+
+    // Read export parameters
     const params = request.nextUrl.searchParams;
 
     const format = params.get("format") ?? "csv";
-    const rawSearch = params.get("search") ?? "";
-    const search = rawSearch.trim();
-
+    const search = (params.get("search") ?? "").trim();
     const type = params.get("type") ?? "all";
     const rawStatus = params.get("status") ?? "active";
 
@@ -504,10 +487,7 @@ export async function GET(request: NextRequest) {
     const startDate = normalizeDate(rawStartDate);
     const endDate = normalizeDate(rawEndDate);
 
-    // ======================================
-    // PARAMETER VALIDATION
-    // ======================================
-
+    // Validate export parameters
     if (format !== "csv" && format !== "xlsx") {
       return jsonError(
         "Invalid export format.",
@@ -568,14 +548,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ======================================
-    // QUERY TRANSACTIONS
-    // ======================================
-
+    // Fetch transactions in batches
     const transactions: Transaction[] = [];
 
-    // Stable upper boundary for newly inserted
-    // transactions during export.
     const exportCutoff = new Date().toISOString();
 
     let cursorCreatedAt: string | null = null;
@@ -641,6 +616,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Apply stable cursor pagination
       if (cursorCreatedAt && cursorId) {
         query = query.or(
           `created_at.lt.${cursorCreatedAt},` +
@@ -710,10 +686,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ======================================
-    // FETCH ITEM DETAILS
-    // ======================================
-
+    // Fetch item details
     const itemIds = [
       ...new Set(
         transactions.map((row) => row.item_id)
@@ -757,10 +730,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ======================================
-    // PREPARE EXPORT ROWS
-    // ======================================
-
+    // Prepare export rows
     const rows: ExportRow[] = transactions.map(
       (transaction) => {
         const item = itemMap.get(
@@ -781,8 +751,7 @@ export async function GET(request: NextRequest) {
               transaction.transaction_type
             ] ?? transaction.transaction_type,
           quantity:
-            transaction.transaction_type ===
-            "stock_in"
+            transaction.transaction_type === "stock_in"
               ? quantity
               : -quantity,
           unit: item?.unit ?? "",
@@ -792,14 +761,11 @@ export async function GET(request: NextRequest) {
     );
 
     const filename =
-      `pantryoven-stock-report-${
-        new Date().toISOString().slice(0, 10)
-      }`;
+      `pantryoven-stock-report-${new Date()
+        .toISOString()
+        .slice(0, 10)}`;
 
-    // ======================================
-    // CSV EXPORT
-    // ======================================
-
+    // Generate CSV report
     if (format === "csv") {
       return new NextResponse(
         createCsv(rows),
@@ -815,10 +781,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ======================================
-    // EXCEL EXPORT
-    // ======================================
-
+    // Generate Excel report
     const workbook = createExcelReport(
       rows,
       startDate,

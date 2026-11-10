@@ -25,12 +25,30 @@ type ApiAuthResult =
       message: string;
     };
 
+// Validate account role
+function isValidRole(role: unknown): role is UserRole {
+  return role === "admin" || role === "staff";
+}
+
+// Validate account status
+function isValidStatus(
+  status: unknown
+): status is AccountStatus {
+  return (
+    status === "active" ||
+    status === "pending" ||
+    status === "suspended"
+  );
+}
+
+// Verify API access using authenticated profile
 async function verifyApiAccess(
-  allowedRoles: UserRole[]
+  allowedRoles: readonly UserRole[]
 ): Promise<ApiAuthResult> {
   try {
     const supabase = await createClient();
 
+    // Verify authenticated user
     const {
       data: { user },
       error: authError,
@@ -44,41 +62,72 @@ async function verifyApiAccess(
       };
     }
 
-    const { data: profile, error } =
+    // Retrieve account role and status
+    const { data: profile, error: profileError } =
       await supabase
         .from("profiles")
         .select("id, role, status")
         .eq("id", user.id)
         .single();
 
-    if (error || !profile) {
+    // Reject database query failures
+    if (profileError) {
+      if (profileError.code === "PGRST116") {
+        return {
+          authorized: false,
+          status: 403,
+          message: "Account profile not found.",
+        };
+      }
+
       console.error(
         "API profile query failed:",
-        error?.message
+        profileError.message
       );
 
       return {
         authorized: false,
-        status: 403,
-        message: "Account access unavailable.",
+        status: 500,
+        message: "Unable to verify account access.",
       };
     }
 
-    const role = profile.role as UserRole;
-    const status = profile.status as AccountStatus;
+    // Reject missing profiles
+    if (!profile) {
+      return {
+        authorized: false,
+        status: 403,
+        message: "Account profile not found.",
+      };
+    }
 
-    if (status !== "active") {
+    // Validate profile integrity
+    if (
+      profile.id !== user.id ||
+      !isValidRole(profile.role) ||
+      !isValidStatus(profile.status)
+    ) {
+      return {
+        authorized: false,
+        status: 403,
+        message: "Invalid account profile.",
+      };
+    }
+
+    // Reject inactive accounts
+    if (profile.status !== "active") {
       return {
         authorized: false,
         status: 403,
         message:
-          status === "pending"
+          profile.status === "pending"
             ? "Account is pending approval."
-            : "Account is not active.",
+            : "Account is suspended.",
       };
     }
 
-    if (!allowedRoles.includes(role)) {
+    // Verify allowed roles
+    if (!allowedRoles.includes(profile.role)) {
       return {
         authorized: false,
         status: 403,
@@ -86,19 +135,22 @@ async function verifyApiAccess(
       };
     }
 
+    // Return authorized account profile
     return {
       authorized: true,
       profile: {
         id: profile.id,
-        role,
+        role: profile.role,
         status: "active",
       },
     };
   } catch (error) {
-    console.error(
-      "API authorization error:",
-      error
-    );
+   console.error(
+  "[API Auth] Authorization failed:",
+  error instanceof Error
+    ? error.name
+    : "unknown_error"
+);
 
     return {
       authorized: false,
@@ -108,15 +160,12 @@ async function verifyApiAccess(
   }
 }
 
-// Admin-only endpoints
-export async function verifyApiAdmin() {
+// Allow active Admin accounts only
+export async function verifyApiAdmin(): Promise<ApiAuthResult> {
   return verifyApiAccess(["admin"]);
 }
 
-// Operational endpoints
-export async function verifyApiStaff() {
-  return verifyApiAccess([
-    "admin",
-    "staff",
-  ]);
+// Allow active Admin and Staff accounts
+export async function verifyApiStaff(): Promise<ApiAuthResult> {
+  return verifyApiAccess(["admin", "staff"]);
 }

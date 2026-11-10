@@ -1,15 +1,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { verifyApiStaff } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// CONSTANTS & TYPES
 
 const noStoreHeaders = {
   "Cache-Control": "private, no-store",
+  "X-Content-Type-Options": "nosniff",
 };
 
 const VALID_TYPES = [
@@ -25,37 +25,19 @@ const VALID_ARCHIVE_STATUSES = [
   "all",
 ] as const;
 
-type TransactionType =
-  (typeof VALID_TYPES)[number];
-
-type ArchiveStatus =
-  (typeof VALID_ARCHIVE_STATUSES)[number];
-
-type AuthResult =
-  | { authorized: true }
-  | {
-      authorized: false;
-      status: number;
-      message: string;
-    };
+type TransactionType = (typeof VALID_TYPES)[number];
+type ArchiveStatus = (typeof VALID_ARCHIVE_STATUSES)[number];
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// Application-level limit.
-// Adjust according to database precision.
 const MAX_TRANSACTION_QUANTITY = 1_000_000_000;
-
 const MAX_SEARCH_LENGTH = 100;
 const MAX_NOTES_LENGTH = 500;
 const MAX_PAGE_LIMIT = 50;
 
-// RESPONSE HELPERS
-
-function jsonError(
-  message: string,
-  status: number
-) {
+// Return consistent API errors
+function jsonError(message: string, status: number) {
   return NextResponse.json(
     {
       success: false,
@@ -68,57 +50,7 @@ function jsonError(
   );
 }
 
-
-// AUTHENTICATION & AUTHORIZATION
-
-
-async function verifyAdmin(): Promise<AuthResult> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    return {
-      authorized: false,
-      status: 401,
-      message:
-        "Unauthorized. Silakan login terlebih dahulu.",
-    };
-  }
-
-  const adminUserId = process.env.ADMIN_USER_ID;
-
-  if (!adminUserId) {
-    console.error(
-      "ADMIN_USER_ID belum dikonfigurasi."
-    );
-
-    return {
-      authorized: false,
-      status: 500,
-      message:
-        "Konfigurasi admin belum lengkap.",
-    };
-  }
-
-  if (user.id !== adminUserId) {
-    return {
-      authorized: false,
-      status: 403,
-      message:
-        "Forbidden. Hanya admin yang dapat mengakses transaksi.",
-    };
-  }
-
-  return { authorized: true };
-}
-
-// VALIDATION HELPERS
-
-
+// Validate transaction type
 function isTransactionType(
   value: unknown
 ): value is TransactionType {
@@ -128,6 +60,7 @@ function isTransactionType(
   );
 }
 
+// Validate archive status
 function isArchiveStatus(
   value: unknown
 ): value is ArchiveStatus {
@@ -139,6 +72,7 @@ function isArchiveStatus(
   );
 }
 
+// Validate positive transaction quantity
 function isValidQuantity(
   value: unknown
 ): value is number {
@@ -150,15 +84,14 @@ function isValidQuantity(
   );
 }
 
+// Escape LIKE wildcards in item-name search
 function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
-function verifyRequestOrigin(
-  request: NextRequest
-) {
-  const requestOrigin =
-    request.headers.get("origin");
+// Validate request origin
+function verifyRequestOrigin(request: NextRequest) {
+  const requestOrigin = request.headers.get("origin");
 
   const configuredOrigin =
     process.env.APP_ORIGIN ??
@@ -167,9 +100,7 @@ function verifyRequestOrigin(
       : "");
 
   if (!configuredOrigin) {
-    console.error(
-      "APP_ORIGIN belum dikonfigurasi."
-    );
+    console.error("APP_ORIGIN belum dikonfigurasi.");
 
     return jsonError(
       "Konfigurasi origin server belum lengkap.",
@@ -180,25 +111,23 @@ function verifyRequestOrigin(
   let allowedOrigin: string;
 
   try {
-    const parsedOrigin = new URL(
-      configuredOrigin
-    );
+    const parsedOrigin = new URL(configuredOrigin);
 
     if (
-      !["http:", "https:"].includes(
-        parsedOrigin.protocol
-      )
+      !["http:", "https:"].includes(parsedOrigin.protocol) ||
+      parsedOrigin.origin === "null" ||
+      parsedOrigin.username ||
+      parsedOrigin.password ||
+      parsedOrigin.pathname !== "/" ||
+      parsedOrigin.search ||
+      parsedOrigin.hash
     ) {
-      throw new Error(
-        "Invalid origin protocol"
-      );
+      throw new Error("Invalid APP_ORIGIN");
     }
 
     allowedOrigin = parsedOrigin.origin;
   } catch {
-    console.error(
-      "APP_ORIGIN tidak valid."
-    );
+    console.error("APP_ORIGIN tidak valid.");
 
     return jsonError(
       "Konfigurasi origin server tidak valid.",
@@ -216,17 +145,12 @@ function verifyRequestOrigin(
   return null;
 }
 
-function verifyJsonContentType(
-  request: NextRequest
-) {
+// Validate JSON content type
+function verifyJsonContentType(request: NextRequest) {
   const contentType =
     request.headers.get("content-type") ?? "";
 
-  if (
-    !/^application\/json(?:\s*;|$)/i.test(
-      contentType
-    )
-  ) {
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
     return jsonError(
       "Content-Type harus application/json.",
       415
@@ -236,58 +160,32 @@ function verifyJsonContentType(
   return null;
 }
 
-
-// GET /api/v1/transactions
-
-
-export async function GET(
-  request: NextRequest
-) {
+// GET transaction history for active Admin and Staff
+export async function GET(request: NextRequest) {
   try {
-    // 1. Verify admin.
-    const auth = await verifyAdmin();
+    const auth = await verifyApiStaff();
 
     if (!auth.authorized) {
-      return jsonError(
-        auth.message,
-        auth.status
-      );
+      return jsonError(auth.message, auth.status);
     }
 
-    // 2. Read query parameters.
-    const params =
-      request.nextUrl.searchParams;
+    const params = request.nextUrl.searchParams;
 
-    const search = (
-      params.get("search") ?? ""
-    ).trim();
+    const search = (params.get("search") ?? "").trim();
+    const type = params.get("type") ?? "all";
+    const status = params.get("status") ?? "active";
+    const pageParam = params.get("page") ?? "1";
+    const limitParam = params.get("limit") ?? "10";
 
-    const type =
-      params.get("type") ?? "all";
-
-    const status =
-      params.get("status") ?? "active";
-
-    const pageParam =
-      params.get("page") ?? "1";
-
-    const limitParam =
-      params.get("limit") ?? "10";
-
-    // 3. Validate filters.
-    if (
-      search.length > MAX_SEARCH_LENGTH
-    ) {
+    // Validate search and filters
+    if (search.length > MAX_SEARCH_LENGTH) {
       return jsonError(
         "Pencarian maksimal 100 karakter.",
         400
       );
     }
 
-    if (
-      type !== "all" &&
-      !isTransactionType(type)
-    ) {
+    if (type !== "all" && !isTransactionType(type)) {
       return jsonError(
         "Jenis transaksi tidak valid.",
         400
@@ -304,6 +202,7 @@ export async function GET(
     const page = Number(pageParam);
     const limit = Number(limitParam);
 
+    // Validate pagination
     if (
       !Number.isSafeInteger(page) ||
       page < 1 ||
@@ -330,7 +229,7 @@ export async function GET(
       );
     }
 
-    // 4. Empty response helper.
+    // Return empty search results
     const emptyResult = () =>
       NextResponse.json(
         {
@@ -349,37 +248,23 @@ export async function GET(
         }
       );
 
-    // SEARCH ITEMS
+    let matchingItemIds: string[] | null = null;
 
-
-    let matchingItemIds:
-      | string[]
-      | null = null;
-
+    // Search matching inventory items
     if (search) {
-      const safeSearch =
-        escapeLike(search);
+      const safeSearch = escapeLike(search);
 
-      const {
-        data: items,
-        error: searchError,
-      } = await supabaseAdmin
-        .from("items")
-        .select("id")
-        .ilike(
-          "name",
-          `%${safeSearch}%`
-        );
+      const { data: items, error: searchError } =
+        await supabaseAdmin
+          .from("items")
+          .select("id")
+          .ilike("name", `%${safeSearch}%`);
 
       if (searchError) {
-        console.error(
-          "Transaction search error:",
-          {
-            code: searchError.code,
-            message:
-              searchError.message,
-          }
-        );
+        console.error("Transaction search error:", {
+          code: searchError.code,
+          message: searchError.message,
+        });
 
         return jsonError(
           "Gagal mencari barang.",
@@ -387,20 +272,16 @@ export async function GET(
         );
       }
 
-      matchingItemIds = (
-        items ?? []
-      ).map((item) => item.id);
+      matchingItemIds = (items ?? []).map(
+        (item) => item.id
+      );
 
-      if (
-        matchingItemIds.length === 0
-      ) {
+      if (matchingItemIds.length === 0) {
         return emptyResult();
       }
     }
 
-    // FETCH TRANSACTIONS
- 
-
+    // Build transaction history query
     let query = supabaseAdmin
       .from("stock_transactions")
       .select(
@@ -422,33 +303,17 @@ export async function GET(
         }
       );
 
-    // Filter by transaction type.
     if (type !== "all") {
-      query = query.eq(
-        "transaction_type",
-        type
-      );
+      query = query.eq("transaction_type", type);
     }
 
-    // Filter by matching items.
-    if (
-      matchingItemIds !== null
-    ) {
-      query = query.in(
-        "item_id",
-        matchingItemIds
-      );
+    if (matchingItemIds !== null) {
+      query = query.in("item_id", matchingItemIds);
     }
 
-    // Filter by archive status.
     if (status === "active") {
-      query = query.is(
-        "item.archived_at",
-        null
-      );
-    } else if (
-      status === "archived"
-    ) {
+      query = query.is("item.archived_at", null);
+    } else if (status === "archived") {
       query = query.not(
         "item.archived_at",
         "is",
@@ -456,11 +321,8 @@ export async function GET(
       );
     }
 
-    const {
-      data,
-      count,
-      error,
-    } = await query
+    // Fetch paginated transaction history
+    const { data, count, error } = await query
       .order("created_at", {
         ascending: false,
       })
@@ -470,14 +332,11 @@ export async function GET(
       .range(from, to);
 
     if (error) {
-      console.error(
-        "GET transactions error:",
-        {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-        }
-      );
+      console.error("GET transactions error:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
 
       return jsonError(
         "Gagal mengambil riwayat transaksi.",
@@ -485,44 +344,28 @@ export async function GET(
       );
     }
 
-    // FORMAT RESPONSE
+    // Format transaction response
+    const transactions = (data ?? []).map(
+      (transaction) => {
+        const itemRelation = transaction.item;
 
+        const item = Array.isArray(itemRelation)
+          ? itemRelation[0]
+          : itemRelation;
 
-    const transactions = (
-      data ?? []
-    ).map((transaction) => {
-      const itemRelation =
-        transaction.item;
-
-      const item = Array.isArray(
-        itemRelation
-      )
-        ? itemRelation[0]
-        : itemRelation;
-
-      return {
-        id: transaction.id,
-        item_id:
-          transaction.item_id,
-        transaction_type:
-          transaction.transaction_type,
-        quantity: Number(
-          transaction.quantity
-        ),
-        notes:
-          transaction.notes,
-        created_at:
-          transaction.created_at,
-        item_name:
-          item?.name ??
-          "Unknown Item",
-        unit:
-          item?.unit ?? "",
-        item_archived_at:
-          item?.archived_at ??
-          null,
-      };
-    });
+        return {
+          id: transaction.id,
+          item_id: transaction.item_id,
+          transaction_type: transaction.transaction_type,
+          quantity: Number(transaction.quantity),
+          notes: transaction.notes,
+          created_at: transaction.created_at,
+          item_name: item?.name ?? "Unknown Item",
+          unit: item?.unit ?? "",
+          item_archived_at: item?.archived_at ?? null,
+        };
+      }
+    );
 
     const total = count ?? 0;
 
@@ -534,8 +377,7 @@ export async function GET(
           page,
           limit,
           total,
-          totalPages:
-            Math.ceil(total / limit),
+          totalPages: Math.ceil(total / limit),
         },
       },
       {
@@ -549,39 +391,27 @@ export async function GET(
       error
     );
 
-    return jsonError(
-      "Internal Server Error",
-      500
-    );
+    return jsonError("Internal Server Error", 500);
   }
 }
 
-// POST /api/v1/transactions
-
-
-export async function POST(
-  request: NextRequest
-) {
+// POST stock transactions for active Admin and Staff
+export async function POST(request: NextRequest) {
   try {
-    // 1. Verify admin.
-    const auth = await verifyAdmin();
+    const auth = await verifyApiStaff();
 
     if (!auth.authorized) {
-      return jsonError(
-        auth.message,
-        auth.status
-      );
+      return jsonError(auth.message, auth.status);
     }
 
-    // 2. Verify origin.
-    const originError =
-      verifyRequestOrigin(request);
+    // Validate request origin
+    const originError = verifyRequestOrigin(request);
 
     if (originError) {
       return originError;
     }
 
-    // 3. Verify content type.
+    // Validate JSON content type
     const contentTypeError =
       verifyJsonContentType(request);
 
@@ -589,7 +419,7 @@ export async function POST(
       return contentTypeError;
     }
 
-    // 4. Parse JSON.
+    // Parse JSON body
     let body: unknown;
 
     try {
@@ -612,23 +442,20 @@ export async function POST(
       );
     }
 
-    const input =
-      body as Record<string, unknown>;
+    const input = body as Record<string, unknown>;
 
-    // 5. Reject unexpected fields.
+    // Reject unexpected fields
     const allowedFields = [
       "item_id",
       "transaction_type",
       "quantity",
       "notes",
+      "idempotency_key",
     ];
 
     if (
       Object.keys(input).some(
-        (key) =>
-          !allowedFields.includes(
-            key
-          )
+        (key) => !allowedFields.includes(key)
       )
     ) {
       return jsonError(
@@ -637,19 +464,13 @@ export async function POST(
       );
     }
 
-    const itemId =
-      input.item_id;
+    const itemId = input.item_id;
+    const transactionType = input.transaction_type;
+    const quantity = input.quantity;
+    const notes = input.notes;
+    const idempotencyKey = input.idempotency_key;
 
-    const transactionType =
-      input.transaction_type;
-
-    const quantity =
-      input.quantity;
-
-    const notes =
-      input.notes;
-
-    // 6. Validate item ID.
+    // Validate item ID
     if (
       typeof itemId !== "string" ||
       !UUID_REGEX.test(itemId)
@@ -660,29 +481,23 @@ export async function POST(
       );
     }
 
-    // 7. Validate transaction type.
-    if (
-      !isTransactionType(
-        transactionType
-      )
-    ) {
+    // Validate transaction type
+    if (!isTransactionType(transactionType)) {
       return jsonError(
         "Jenis transaksi tidak valid.",
         400
       );
     }
 
-    // 8. Validate quantity.
-    if (
-      !isValidQuantity(quantity)
-    ) {
+    // Validate transaction quantity
+    if (!isValidQuantity(quantity)) {
       return jsonError(
         "Jumlah transaksi harus lebih besar dari 0 dan maksimal 1.000.000.000.",
         400
       );
     }
 
-    // 9. Validate notes.
+    // Validate transaction notes
     if (
       notes !== undefined &&
       notes !== null &&
@@ -697,45 +512,51 @@ export async function POST(
       );
     }
 
-    // CREATE STOCK TRANSACTION
+    // Require a valid idempotency key
+    if (
+      typeof idempotencyKey !== "string" ||
+      !UUID_REGEX.test(idempotencyKey)
+    ) {
+      return jsonError(
+        "Idempotency key wajib berupa UUID yang valid.",
+        400
+      );
+    }
 
-
-    // Atomic stock updates and archived
-    // item protection must be enforced
-    // inside the PostgreSQL RPC.
-    const {
-      data,
-      error,
-    } = await supabaseAdmin.rpc(
+    // Create transaction through atomic PostgreSQL RPC
+    const { data, error } = await supabaseAdmin.rpc(
       "create_stock_transaction",
       {
         p_item_id: itemId,
-        p_transaction_type:
-          transactionType,
+        p_transaction_type: transactionType,
         p_quantity: quantity,
         p_notes:
           typeof notes === "string"
             ? notes.trim()
             : null,
+        p_idempotency_key: idempotencyKey,
       }
     );
 
     if (error) {
-      console.error(
-        "Transaction RPC error:",
-        {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-        }
-      );
+      console.error("Transaction RPC error:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
 
       if (
         error.message.includes(
-          "ITEM_ARCHIVED"
+          "IDEMPOTENCY_KEY_CONFLICT"
         )
       ) {
+        return jsonError(
+          "Idempotency key sudah digunakan untuk transaksi berbeda.",
+          409
+        );
+      }
+
+      if (error.message.includes("ITEM_ARCHIVED")) {
         return jsonError(
           "Barang sudah diarsipkan. Aktifkan kembali sebelum mencatat transaksi.",
           409
@@ -743,9 +564,7 @@ export async function POST(
       }
 
       if (
-        error.message.includes(
-          "INSUFFICIENT_STOCK"
-        )
+        error.message.includes("INSUFFICIENT_STOCK")
       ) {
         return jsonError(
           "Stok tidak mencukupi untuk transaksi ini.",
@@ -753,11 +572,7 @@ export async function POST(
         );
       }
 
-      if (
-        error.message.includes(
-          "ITEM_NOT_FOUND"
-        )
-      ) {
+      if (error.message.includes("ITEM_NOT_FOUND")) {
         return jsonError(
           "Barang tidak ditemukan.",
           404
@@ -765,12 +580,9 @@ export async function POST(
       }
 
       if (
-        error.message.includes(
-          "INVALID_QUANTITY"
-        ) ||
-        error.message.includes(
-          "INVALID_TRANSACTION_TYPE"
-        )
+        error.message.includes("INVALID_QUANTITY") ||
+        error.message.includes("INVALID_TRANSACTION_TYPE") ||
+        error.message.includes("INVALID_NOTES")
       ) {
         return jsonError(
           "Data transaksi tidak valid.",
@@ -784,17 +596,25 @@ export async function POST(
       );
     }
 
+    if (typeof data !== "string" || !UUID_REGEX.test(data)) {
+      console.error(
+        "Transaction RPC returned an invalid ID."
+      );
+
+      return jsonError(
+        "Respons database tidak valid.",
+        500
+      );
+    }
 
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Transaksi stok berhasil dicatat.",
+        message: "Transaksi stok berhasil dicatat.",
         data: {
           id: data,
           item_id: itemId,
-          transaction_type:
-            transactionType,
+          transaction_type: transactionType,
           quantity,
         },
       },
@@ -809,9 +629,6 @@ export async function POST(
       error
     );
 
-    return jsonError(
-      "Internal Server Error",
-      500
-    );
+    return jsonError("Internal Server Error", 500);
   }
 }

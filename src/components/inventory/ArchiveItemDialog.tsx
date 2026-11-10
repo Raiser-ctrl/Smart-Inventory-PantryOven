@@ -1,9 +1,9 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, RotateCcw } from "lucide-react";
+import { Archive, Loader2, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -27,6 +27,11 @@ type Props = {
   };
 };
 
+type ApiResponse = {
+  success?: boolean;
+  message?: string;
+};
+
 export function ArchiveItemDialog({ item }: Props) {
   const router = useRouter();
 
@@ -34,42 +39,65 @@ export function ArchiveItemDialog({ item }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Synchronous protection against duplicate requests.
+  const submittingRef = useRef(false);
+
   const isArchived = item.archived_at !== null;
+  const action = isArchived ? "restore" : "archive";
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (submittingRef.current) return;
+
+    setOpen(nextOpen);
+
+    if (!nextOpen) {
+      setError("");
+    }
+  }
 
   async function handleAction() {
-    if (loading) return;
+    if (submittingRef.current) return;
 
+    submittingRef.current = true;
     setLoading(true);
     setError("");
 
     try {
-      const endpoint = isArchived ? "restore" : "archive";
-
       const response = await fetch(
-        `/api/v1/items/${item.id}/${endpoint}`,
+        `/api/v1/items/${encodeURIComponent(item.id)}/${action}`,
         {
           method: "POST",
           credentials: "same-origin",
+          cache: "no-store",
         }
       );
 
-      const result = await response.json();
+      const result: ApiResponse | null =
+        await response.json().catch(() => null);
 
-      if (!response.ok || !result.success) {
+      if (!response.ok || result?.success !== true) {
         throw new Error(
-          result.message ?? "Gagal mengubah status barang."
+          result?.message ??
+            `Gagal ${
+              isArchived ? "memulihkan" : "mengarsipkan"
+            } barang. Silakan coba lagi.`
         );
       }
 
+      // The server confirmed success.
       setOpen(false);
+      setError("");
+
+      // Refresh inventory data from Server Components.
       router.refresh();
-    } catch (err) {
+    } catch (caughtError) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Terjadi kesalahan."
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Terjadi kesalahan saat mengubah status barang."
       );
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   }
@@ -77,15 +105,7 @@ export function ArchiveItemDialog({ item }: Props) {
   return (
     <AlertDialog
       open={open}
-      onOpenChange={(nextOpen) => {
-        if (loading) return;
-
-        setOpen(nextOpen);
-
-        if (!nextOpen) {
-          setError("");
-        }
-      }}
+      onOpenChange={handleOpenChange}
     >
       <AlertDialogTrigger asChild>
         <Button
@@ -115,7 +135,9 @@ export function ArchiveItemDialog({ item }: Props) {
           </div>
 
           <AlertDialogTitle>
-            {isArchived ? "Restore item?" : "Archive item?"}
+            {isArchived
+              ? "Restore item?"
+              : "Archive item?"}
           </AlertDialogTitle>
 
           <AlertDialogDescription>
@@ -160,11 +182,16 @@ export function ArchiveItemDialog({ item }: Props) {
               void handleAction();
             }}
           >
-            {loading
-              ? "Processing..."
-              : isArchived
-                ? "Restore item"
-                : "Archive item"}
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Processing...
+              </>
+            ) : isArchived ? (
+              "Restore item"
+            ) : (
+              "Archive item"
+            )}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

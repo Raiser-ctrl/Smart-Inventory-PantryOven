@@ -33,9 +33,11 @@ export type TransactionHistoryRow = {
   itemArchivedAt: string | null;
 };
 
+type ArchiveStatus = "active" | "archived" | "all";
+
 type Props = {
   history: TransactionHistoryRow[];
-  status: "active" | "archived" | "all";
+  status: ArchiveStatus;
   hasInvalidRange: boolean;
 };
 
@@ -49,34 +51,71 @@ const typeLabels: Record<string, string> = {
 const typeStyles: Record<string, string> = {
   stock_in:
     "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+
   stock_out:
     "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+
   usage:
     "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+
   waste:
     "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
 };
 
-const dateFormatter = new Intl.DateTimeFormat("id-ID", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "Asia/Jakarta",
-});
+const dateFormatter = new Intl.DateTimeFormat(
+  "id-ID",
+  {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Jakarta",
+  }
+);
 
-const quantityFormatter = new Intl.NumberFormat("id-ID", {
-  maximumFractionDigits: 2,
-});
+const quantityFormatter = new Intl.NumberFormat(
+  "id-ID",
+  {
+    maximumFractionDigits: 6,
+  }
+);
 
-function TransactionBadge({ type }: { type: string }) {
+function formatTransactionDate(
+  value: string
+): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Tanggal tidak tersedia";
+  }
+
+  return dateFormatter.format(date);
+}
+
+function formatQuantity(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "—";
+  }
+
+  return quantityFormatter.format(
+    Math.abs(value)
+  );
+}
+
+function TransactionBadge({
+  type,
+}: {
+  type: string;
+}) {
+  const label = typeLabels[type] ?? type;
+  const style =
+    typeStyles[type] ??
+    "border-border bg-muted text-foreground";
+
   return (
     <Badge
       variant="outline"
-      className={`max-w-full shrink-0 whitespace-nowrap ${
-        typeStyles[type] ??
-        "border-border bg-muted text-foreground"
-      }`}
+      className={`max-w-full shrink-0 whitespace-nowrap ${style}`}
     >
-      {typeLabels[type] ?? type}
+      {label}
     </Badge>
   );
 }
@@ -89,6 +128,12 @@ function QuantityDisplay({
   const incoming =
     transaction.transaction_type === "stock_in";
 
+  const validQuantity = Number.isFinite(
+    transaction.quantity
+  );
+
+  const sign = incoming ? "+" : "−";
+
   return (
     <span
       className={`font-semibold tabular-nums ${
@@ -97,11 +142,17 @@ function QuantityDisplay({
           : "text-orange-600 dark:text-orange-400"
       }`}
     >
-      {incoming ? "+" : "−"}
-      {quantityFormatter.format(
-        Math.abs(transaction.quantity)
-      )}{" "}
-      {transaction.unit}
+      {validQuantity ? (
+        <>
+          {sign}
+          {formatQuantity(
+            transaction.quantity
+          )}{" "}
+          {transaction.unit}
+        </>
+      ) : (
+        "—"
+      )}
     </span>
   );
 }
@@ -121,7 +172,8 @@ function TransactionNotes({
     );
   }
 
-  const isLong = notes.length > 90;
+  const normalizedNotes = notes.trim();
+  const isLong = normalizedNotes.length > 90;
 
   return (
     <div className="min-w-0 max-w-full">
@@ -131,9 +183,13 @@ function TransactionNotes({
             ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             : "line-clamp-2 break-words [overflow-wrap:anywhere]"
         }
-        title={expanded ? undefined : notes}
+        title={
+          expanded
+            ? undefined
+            : normalizedNotes
+        }
       >
-        {notes}
+        {normalizedNotes}
       </p>
 
       {isLong && (
@@ -148,6 +204,7 @@ function TransactionNotes({
           {expanded ? (
             <>
               Show less
+
               <ChevronUp
                 aria-hidden="true"
                 className="size-3.5"
@@ -156,6 +213,7 @@ function TransactionNotes({
           ) : (
             <>
               Read more
+
               <ChevronDown
                 aria-hidden="true"
                 className="size-3.5"
@@ -172,14 +230,20 @@ function EmptyState({
   status,
   hasInvalidRange,
 }: {
-  status: Props["status"];
+  status: ArchiveStatus;
   hasInvalidRange: boolean;
 }) {
+  const title = hasInvalidRange
+    ? "Invalid date range"
+    : "No transactions found";
+
   const message = hasInvalidRange
-    ? "Tanggal mulai tidak boleh setelah tanggal akhir."
+    ? "Tanggal mulai tidak boleh setelah tanggal akhir. Silakan perbaiki rentang tanggal."
     : status === "archived"
       ? "Belum ada transaksi dari barang yang diarsipkan."
-      : "Tidak ada transaksi yang cocok dengan filter.";
+      : status === "active"
+        ? "Belum ada transaksi aktif yang cocok dengan filter."
+        : "Tidak ada transaksi yang cocok dengan filter.";
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-4 py-14 text-center">
@@ -192,7 +256,7 @@ function EmptyState({
 
       <div className="space-y-1">
         <p className="text-sm font-medium">
-          No transactions found
+          {title}
         </p>
 
         <p className="max-w-sm text-sm text-muted-foreground">
@@ -208,7 +272,7 @@ export default function TransactionHistoryList({
   status,
   hasInvalidRange,
 }: Props) {
-  if (history.length === 0) {
+  if (hasInvalidRange || history.length === 0) {
     return (
       <EmptyState
         status={status}
@@ -248,6 +312,7 @@ export default function TransactionHistoryList({
                 key={transaction.id}
                 className="align-top"
               >
+                {/* Item */}
                 <TableCell>
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
@@ -275,27 +340,33 @@ export default function TransactionHistoryList({
                   </div>
                 </TableCell>
 
+                {/* Type */}
                 <TableCell>
                   <TransactionBadge
-                    type={transaction.transaction_type}
+                    type={
+                      transaction.transaction_type
+                    }
                   />
                 </TableCell>
 
+                {/* Quantity */}
                 <TableCell>
                   <QuantityDisplay
                     transaction={transaction}
                   />
                 </TableCell>
 
+                {/* Notes */}
                 <TableCell className="max-w-[260px] text-sm text-muted-foreground">
                   <TransactionNotes
                     notes={transaction.notes}
                   />
                 </TableCell>
 
+                {/* Date */}
                 <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {dateFormatter.format(
-                    new Date(transaction.created_at)
+                  {formatTransactionDate(
+                    transaction.created_at
                   )}
                 </TableCell>
               </TableRow>
@@ -311,7 +382,7 @@ export default function TransactionHistoryList({
             key={transaction.id}
             className="min-w-0 rounded-xl border bg-card p-3.5"
           >
-            {/* Item and transaction type */}
+            {/* Item and type */}
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-start gap-2.5">
                 <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
@@ -333,8 +404,8 @@ export default function TransactionHistoryList({
                     />
 
                     <span className="break-words">
-                      {dateFormatter.format(
-                        new Date(transaction.created_at)
+                      {formatTransactionDate(
+                        transaction.created_at
                       )}
                     </span>
                   </p>
@@ -342,7 +413,9 @@ export default function TransactionHistoryList({
               </div>
 
               <TransactionBadge
-                type={transaction.transaction_type}
+                type={
+                  transaction.transaction_type
+                }
               />
             </div>
 

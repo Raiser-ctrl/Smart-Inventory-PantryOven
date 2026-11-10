@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { verifyApiAdmin } from "@/lib/api-auth";
+import { verifyApiStaff } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 import {
@@ -25,10 +25,7 @@ type LowStockItem = {
   minimum_stock: number;
 };
 
-// ==========================================
-// ERROR RESPONSE
-// ==========================================
-
+// Return consistent API errors
 function errorResponse(
   message: string,
   status: number
@@ -45,10 +42,7 @@ function errorResponse(
   );
 }
 
-// ==========================================
-// PERIOD VALIDATION
-// ==========================================
-
+// Validate analytics period
 function parsePeriod(
   value: string | null
 ): AnalyticsPeriod | null {
@@ -63,10 +57,7 @@ function parsePeriod(
   return null;
 }
 
-// ==========================================
-// LOW STOCK PROCESSING
-// ==========================================
-
+// Process low-stock inventory alerts
 function buildLowStock(
   items: Array<{
     id: string;
@@ -79,7 +70,7 @@ function buildLowStock(
   const lowStock: LowStockItem[] = [];
 
   for (const item of items) {
-    // Do not silently convert null to zero.
+    // Reject missing stock values
     if (
       item.current_stock === null ||
       item.minimum_stock === null
@@ -97,6 +88,7 @@ function buildLowStock(
       item.minimum_stock
     );
 
+    // Reject invalid stock values
     if (
       !Number.isFinite(currentStock) ||
       !Number.isFinite(minimumStock) ||
@@ -108,6 +100,7 @@ function buildLowStock(
       );
     }
 
+    // Collect items at or below minimum stock
     if (currentStock <= minimumStock) {
       lowStock.push({
         id: item.id,
@@ -119,7 +112,7 @@ function buildLowStock(
     }
   }
 
-  // Prioritize the largest stock shortages.
+  // Prioritize the largest stock shortages
   lowStock.sort((a, b) => {
     const shortageA =
       a.current_stock - a.minimum_stock;
@@ -136,16 +129,13 @@ function buildLowStock(
   return lowStock;
 }
 
-// ==========================================
-// GET /api/v1/analytics
-// ==========================================
-
+// GET analytics for active Admin and Staff
 export async function GET(
   request: NextRequest
 ) {
   try {
-    // 1. Authentication and admin authorization.
-    const auth = await verifyApiAdmin();
+    // Verify active Admin or Staff
+    const auth = await verifyApiStaff();
 
     if (!auth.authorized) {
       return errorResponse(
@@ -154,7 +144,7 @@ export async function GET(
       );
     }
 
-    // 2. Validate requested analytics period.
+    // Validate requested analytics period
     const period = parsePeriod(
       request.nextUrl.searchParams.get(
         "period"
@@ -168,8 +158,7 @@ export async function GET(
       );
     }
 
-    // 3. Fetch analytics and active inventory
-    // concurrently.
+    // Fetch analytics and active inventory concurrently
     const [analytics, inventoryResult] =
       await Promise.all([
         getInventoryAnalytics(period),
@@ -182,7 +171,7 @@ export async function GET(
           .is("archived_at", null),
       ]);
 
-    // 4. Check inventory query result.
+    // Check inventory query result
     if (inventoryResult.error) {
       console.error(
         "Analytics inventory query error:",
@@ -194,12 +183,12 @@ export async function GET(
       );
     }
 
-    // 5. Validate and process low-stock alerts.
+    // Build low-stock alerts
     const lowStock = buildLowStock(
       inventoryResult.data ?? []
     );
 
-    // 6. Return analytics data.
+    // Return analytics response
     return NextResponse.json(
       {
         success: true,
@@ -211,21 +200,16 @@ export async function GET(
             endDate: analytics.endDate,
           },
 
-          // Transaction counts per type.
           totals: analytics.totals,
 
-          // Daily transaction counts.
           daily: analytics.daily,
 
-          // Active inventory alerts.
           lowStock,
           lowStockCount: lowStock.length,
 
-          // Sorted by transactionCount.
           topUsedMaterials:
             analytics.topUsedMaterials,
 
-          // Waste activity by item.
           wasteMonitoring:
             analytics.wasteMonitoring,
         },

@@ -1,9 +1,15 @@
 
 "use client";
 
-import { useState, type FormEvent } from "react";
+import {
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
 import {
   ArrowRight,
   Eye,
@@ -15,38 +21,78 @@ import {
 
 import { createClient } from "@/lib/supabase/client";
 import { AuthShell } from "@/components/auth/auth-shell";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 type LoginField = "email" | "password";
-type LoginErrors = Partial<Record<LoginField, string>>;
+
+type LoginErrors = Partial<
+  Record<LoginField, string>
+>;
 
 type UserRole = "admin" | "staff";
-type AccountStatus = "pending" | "active" | "suspended";
+
+type AccountStatus =
+  | "pending"
+  | "active"
+  | "suspended";
 
 type LoginProfile = {
   role: UserRole;
   status: AccountStatus;
 };
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_PATTERN =
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function getLoginDestination(profile: LoginProfile): string {
-  // Redirect suspended users to their dedicated page
+const MAX_EMAIL_LENGTH = 254;
+
+function isLoginProfile(
+  value: unknown
+): value is LoginProfile {
+  if (
+    typeof value !== "object" ||
+    value === null
+  ) {
+    return false;
+  }
+
+  const profile = value as Record<
+    string,
+    unknown
+  >;
+
+  const validRole =
+    profile.role === "admin" ||
+    profile.role === "staff";
+
+  const validStatus =
+    profile.status === "pending" ||
+    profile.status === "active" ||
+    profile.status === "suspended";
+
+  return validRole && validStatus;
+}
+
+function getLoginDestination(
+  profile: LoginProfile
+): string {
   if (profile.status === "suspended") {
     return "/suspended";
   }
 
-  // Pending users must wait for administrator approval
   if (profile.status === "pending") {
     return "/pending";
   }
 
-  // Active admins and staff share the main dashboard
   if (
     profile.status === "active" &&
-    (profile.role === "admin" || profile.role === "staff")
+    (
+      profile.role === "admin" ||
+      profile.role === "staff"
+    )
   ) {
     return "/dashboard";
   }
@@ -57,17 +103,31 @@ function getLoginDestination(profile: LoginProfile): string {
 export default function LoginPage() {
   const router = useRouter();
 
+  const submittingRef = useRef(false);
+
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [password, setPassword] =
+    useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<LoginErrors>({});
-  const [errorMessage, setErrorMessage] = useState("");
+  const [showPassword, setShowPassword] =
+    useState(false);
 
-  function clearFieldError(field: LoginField) {
+  const [loading, setLoading] =
+    useState(false);
+
+  const [fieldErrors, setFieldErrors] =
+    useState<LoginErrors>({});
+
+  const [errorMessage, setErrorMessage] =
+    useState("");
+
+  function clearFieldError(
+    field: LoginField
+  ) {
     setFieldErrors((current) => {
-      if (!current[field]) return current;
+      if (!current[field]) {
+        return current;
+      }
 
       const next = { ...current };
       delete next[field];
@@ -80,58 +140,80 @@ export default function LoginPage() {
 
   function validateForm(): boolean {
     const errors: LoginErrors = {};
+
     const normalizedEmail = email.trim();
 
     if (!normalizedEmail) {
       errors.email = "Email wajib diisi.";
     } else if (
-      normalizedEmail.length > 254 ||
-      !EMAIL_PATTERN.test(normalizedEmail)
+      normalizedEmail.length >
+        MAX_EMAIL_LENGTH ||
+      !EMAIL_PATTERN.test(
+        normalizedEmail
+      )
     ) {
-      errors.email = "Masukkan alamat email yang valid.";
+      errors.email =
+        "Masukkan alamat email yang valid.";
     }
 
     if (!password) {
-      errors.password = "Password wajib diisi.";
+      errors.password =
+        "Password wajib diisi.";
     }
 
     setFieldErrors(errors);
 
-    return Object.keys(errors).length === 0;
+    return (
+      Object.keys(errors).length === 0
+    );
   }
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+  async function handleLogin(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
-    if (loading) return;
+    // Prevent duplicate submissions.
+    if (submittingRef.current) {
+      return;
+    }
 
     setErrorMessage("");
 
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      return;
+    }
 
+    submittingRef.current = true;
     setLoading(true);
 
     try {
       const supabase = createClient();
 
-      // Authenticate with Supabase
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const {
+        data,
+        error: authError,
+      } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
 
-      if (error) {
-        const message = error.message.toLowerCase();
+      if (authError) {
+        const message =
+          authError.message.toLowerCase();
 
         if (
-          error.code === "email_not_confirmed" ||
-          message.includes("email not confirmed")
+          authError.code ===
+            "email_not_confirmed" ||
+          message.includes(
+            "email not confirmed"
+          )
         ) {
           setErrorMessage(
             "Email kamu belum diverifikasi. Periksa inbox atau folder spam terlebih dahulu."
           );
         } else if (
-          error.status === 429 ||
+          authError.status === 429 ||
           message.includes("rate limit")
         ) {
           setErrorMessage(
@@ -150,37 +232,53 @@ export default function LoginPage() {
         setErrorMessage(
           "Login belum berhasil. Silakan coba kembali."
         );
+
         return;
       }
 
-      // Retrieve role and account status
-      const { data: profile, error: profileError } = await supabase
+      // Fetch the current account profile.
+      const {
+        data: profile,
+        error: profileError,
+      } = await supabase
         .from("profiles")
         .select("role, status")
         .eq("id", data.user.id)
         .single();
 
-      if (profileError || !profile) {
-        await supabase.auth.signOut({ scope: "local" });
+      if (
+        profileError ||
+        !isLoginProfile(profile)
+      ) {
+        await supabase.auth.signOut({
+          scope: "local",
+        });
 
         setErrorMessage(
           "Profil akun tidak ditemukan atau tidak dapat diakses. Hubungi administrator."
         );
+
         return;
       }
 
-      // Redirect based on current account status
-      const destination = getLoginDestination(
-        profile as LoginProfile
-      );
+      const destination =
+        getLoginDestination(profile);
 
+      // Account authorization must also be
+      // enforced on protected server routes.
       router.replace(destination);
       router.refresh();
-    } catch {
+    } catch (error) {
+      console.error(
+        "Login request failed:",
+        error
+      );
+
       setErrorMessage(
         "Terjadi masalah saat menghubungi server. Silakan coba lagi."
       );
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   }
@@ -192,12 +290,17 @@ export default function LoginPage() {
     >
       <form
         noValidate
-        onSubmit={(event) => void handleLogin(event)}
+        onSubmit={(event) =>
+          void handleLogin(event)
+        }
         className="space-y-5"
       >
         {/* Email */}
         <div className="space-y-2">
-          <Label htmlFor="email" className="text-[#594c40]">
+          <Label
+            htmlFor="email"
+            className="text-[#594c40]"
+          >
             Email
           </Label>
 
@@ -216,14 +319,16 @@ export default function LoginPage() {
               autoCapitalize="none"
               spellCheck={false}
               placeholder="nama@email.com"
-              maxLength={254}
+              maxLength={MAX_EMAIL_LENGTH}
               value={email}
               onChange={(event) => {
                 setEmail(event.target.value);
                 clearFieldError("email");
               }}
               disabled={loading}
-              aria-invalid={Boolean(fieldErrors.email)}
+              aria-invalid={Boolean(
+                fieldErrors.email
+              )}
               aria-describedby={
                 fieldErrors.email
                   ? "login-email-error"
@@ -246,7 +351,10 @@ export default function LoginPage() {
 
         {/* Password */}
         <div className="space-y-2">
-          <Label htmlFor="password" className="text-[#594c40]">
+          <Label
+            htmlFor="password"
+            className="text-[#594c40]"
+          >
             Password
           </Label>
 
@@ -259,16 +367,26 @@ export default function LoginPage() {
             <Input
               id="password"
               name="password"
-              type={showPassword ? "text" : "password"}
+              type={
+                showPassword
+                  ? "text"
+                  : "password"
+              }
               autoComplete="current-password"
               placeholder="Masukkan password"
               value={password}
               onChange={(event) => {
-                setPassword(event.target.value);
-                clearFieldError("password");
+                setPassword(
+                  event.target.value
+                );
+                clearFieldError(
+                  "password"
+                );
               }}
               disabled={loading}
-              aria-invalid={Boolean(fieldErrors.password)}
+              aria-invalid={Boolean(
+                fieldErrors.password
+              )}
               aria-describedby={
                 fieldErrors.password
                   ? "login-password-error"
@@ -281,7 +399,9 @@ export default function LoginPage() {
               type="button"
               disabled={loading}
               onClick={() =>
-                setShowPassword((current) => !current)
+                setShowPassword(
+                  (current) => !current
+                )
               }
               aria-label={
                 showPassword
@@ -314,6 +434,16 @@ export default function LoginPage() {
               {fieldErrors.password}
             </p>
           )}
+        </div>
+
+        {/* Forgot Password */}
+        <div className="flex justify-end">
+          <Link
+            href="/forgot-password"
+            className="rounded-sm text-sm font-semibold text-[#617451] underline-offset-4 transition-colors hover:text-[#46583b] hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#778766]"
+          >
+            Lupa password?
+          </Link>
         </div>
 
         {/* Authentication feedback */}

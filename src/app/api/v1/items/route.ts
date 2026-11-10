@@ -1,13 +1,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { verifyApiStaff } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const noStoreHeaders = {
   "Cache-Control": "private, no-store",
+  "X-Content-Type-Options": "nosniff",
 };
 
 const VALID_CATEGORIES = [
@@ -22,17 +24,20 @@ const VALID_UNITS = [
   "gram",
 ] as const;
 
-// Application-level stock limit.
-// Adjust if the business needs larger quantities.
-const MAX_STOCK = 1_000_000_000;
+const ALLOWED_ITEM_FIELDS = [
+  "name",
+  "category",
+  "unit",
+  "initial_stock",
+  "minimum_stock",
+  "idempotency_key",
+] as const;
 
-type AuthResult =
-  | { authorized: true }
-  | {
-      authorized: false;
-      status: number;
-      message: string;
-    };
+const MAX_STOCK = 1_000_000_000;
+const MAX_NAME_LENGTH = 150;
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type ItemInput = {
   name: string;
@@ -40,12 +45,24 @@ type ItemInput = {
   unit: (typeof VALID_UNITS)[number];
   initial_stock: number;
   minimum_stock: number;
+  idempotency_key: string;
 };
 
-// ==========================================
-// RESPONSE HELPERS
-// ==========================================
+type CreatedItem = {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  initial_stock: number;
+  minimum_stock: number;
+};
 
+type CreateItemRpcResponse = {
+  item: CreatedItem;
+  replayed: boolean;
+};
+
+// Consistent API error response
 function jsonError(message: string, status: number) {
   return NextResponse.json(
     {
@@ -59,61 +76,9 @@ function jsonError(message: string, status: number) {
   );
 }
 
-// ==========================================
-// AUTHORIZATION
-// ==========================================
-
-async function verifyAdmin(): Promise<AuthResult> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    return {
-      authorized: false,
-      status: 401,
-      message:
-        "Unauthorized. Silakan login terlebih dahulu.",
-    };
-  }
-
-  const adminUserId = process.env.ADMIN_USER_ID;
-
-  if (!adminUserId) {
-    console.error(
-      "ADMIN_USER_ID belum dikonfigurasi."
-    );
-
-    return {
-      authorized: false,
-      status: 500,
-      message:
-        "Konfigurasi server belum lengkap.",
-    };
-  }
-
-  if (user.id !== adminUserId) {
-    return {
-      authorized: false,
-      status: 403,
-      message:
-        "Forbidden. Hanya admin yang dapat mengakses data.",
-    };
-  }
-
-  return { authorized: true };
-}
-
-// ==========================================
-// REQUEST VALIDATION
-// ==========================================
-
+// Verify same-origin write requests
 function verifyRequestOrigin(request: NextRequest) {
-  const requestOrigin =
-    request.headers.get("origin");
+  const requestOrigin = request.headers.get("origin");
 
   const configuredOrigin =
     process.env.APP_ORIGIN ??
@@ -122,9 +87,7 @@ function verifyRequestOrigin(request: NextRequest) {
       : "");
 
   if (!configuredOrigin) {
-    console.error(
-      "APP_ORIGIN belum dikonfigurasi."
-    );
+    console.error("APP_ORIGIN belum dikonfigurasi.");
 
     return jsonError(
       "Konfigurasi origin server belum lengkap.",
@@ -138,19 +101,20 @@ function verifyRequestOrigin(request: NextRequest) {
     const parsedOrigin = new URL(configuredOrigin);
 
     if (
-      !["http:", "https:"].includes(
-        parsedOrigin.protocol
-      ) ||
-      parsedOrigin.origin === "null"
+      !["http:", "https:"].includes(parsedOrigin.protocol) ||
+      parsedOrigin.origin === "null" ||
+      parsedOrigin.username ||
+      parsedOrigin.password ||
+      parsedOrigin.pathname !== "/" ||
+      parsedOrigin.search ||
+      parsedOrigin.hash
     ) {
-      throw new Error("Invalid origin protocol");
+      throw new Error("Invalid APP_ORIGIN");
     }
 
     allowedOrigin = parsedOrigin.origin;
   } catch {
-    console.error(
-      "APP_ORIGIN tidak valid."
-    );
+    console.error("APP_ORIGIN tidak valid.");
 
     return jsonError(
       "Konfigurasi origin server tidak valid.",
@@ -168,14 +132,13 @@ function verifyRequestOrigin(request: NextRequest) {
   return null;
 }
 
-function verifyJsonContentType(
-  request: NextRequest
-) {
+// Validate JSON Content-Type
+function verifyJsonContentType(request: NextRequest) {
   const contentType =
     request.headers.get("content-type") ?? "";
 
   if (
-    !/^application\/json(?:\s*;|$)/i.test(
+    !/^application\/json(?:\s*;\s*charset\s*=\s*[\w-]+)?\s*$/i.test(
       contentType
     )
   ) {
@@ -188,6 +151,7 @@ function verifyJsonContentType(
   return null;
 }
 
+// Validate stock numeric values
 function isValidStock(value: unknown): value is number {
   return (
     typeof value === "number" &&
@@ -197,6 +161,15 @@ function isValidStock(value: unknown): value is number {
   );
 }
 
+// Validate UUID
+function isValidUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    UUID_REGEX.test(value)
+  );
+}
+
+// Validate item creation payload
 function validateItemInput(
   body: unknown
 ):
@@ -215,6 +188,21 @@ function validateItemInput(
 
   const input = body as Record<string, unknown>;
 
+  // Reject unexpected fields
+  const hasUnexpectedFields = Object.keys(input).some(
+    (key) =>
+      !ALLOWED_ITEM_FIELDS.some(
+        (allowedField) => allowedField === key
+      )
+  );
+
+  if (hasUnexpectedFields) {
+    return {
+      valid: false,
+      message: "Terdapat field yang tidak diizinkan.",
+    };
+  }
+
   const name =
     typeof input.name === "string"
       ? input.name.trim()
@@ -225,7 +213,7 @@ function validateItemInput(
 
   if (
     name.length === 0 ||
-    name.length > 150
+    name.length > MAX_NAME_LENGTH
   ) {
     return {
       valid: false,
@@ -242,8 +230,7 @@ function validateItemInput(
   ) {
     return {
       valid: false,
-      message:
-        "Kategori barang tidak valid.",
+      message: "Kategori barang tidak valid.",
     };
   }
 
@@ -255,8 +242,7 @@ function validateItemInput(
   ) {
     return {
       valid: false,
-      message:
-        "Satuan barang tidak valid.",
+      message: "Satuan barang tidak valid.",
     };
   }
 
@@ -271,46 +257,96 @@ function validateItemInput(
     };
   }
 
+  if (!isValidUuid(input.idempotency_key)) {
+    return {
+      valid: false,
+      message:
+        "Idempotency key wajib berupa UUID valid.",
+    };
+  }
+
   return {
     valid: true,
     data: {
       name,
-      category:
-        category as ItemInput["category"],
+      category: category as ItemInput["category"],
       unit: unit as ItemInput["unit"],
       initial_stock: input.initial_stock,
       minimum_stock: input.minimum_stock,
+      idempotency_key: input.idempotency_key,
     },
   };
 }
 
-// ==========================================
-// GET /api/v1/items
-// ==========================================
+// Validate RPC response before returning it
+function isCreateItemRpcResponse(
+  value: unknown
+): value is CreateItemRpcResponse {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
 
+  const result = value as Record<string, unknown>;
+
+  if (
+    typeof result.replayed !== "boolean" ||
+    !result.item ||
+    typeof result.item !== "object" ||
+    Array.isArray(result.item)
+  ) {
+    return false;
+  }
+
+  const item = result.item as Record<string, unknown>;
+
+  return (
+    isValidUuid(item.id) &&
+    typeof item.name === "string" &&
+    typeof item.category === "string" &&
+    typeof item.unit === "string" &&
+    isValidStock(item.initial_stock) &&
+    isValidStock(item.minimum_stock)
+  );
+}
+
+// GET active inventory for Admin and Staff
 export async function GET() {
   try {
-    const auth = await verifyAdmin();
+    const auth = await verifyApiStaff();
 
     if (!auth.authorized) {
-      return jsonError(
-        auth.message,
-        auth.status
-      );
+      return jsonError(auth.message, auth.status);
     }
 
     const { data, error } = await supabaseAdmin
       .from("inventory_current_stock")
-      .select("*")
+      .select(
+        `
+          id,
+          name,
+          category,
+          unit,
+          initial_stock,
+          minimum_stock,
+          current_stock,
+          archived_at
+        `
+      )
+      .is("archived_at", null)
       .order("name", {
         ascending: true,
       });
 
     if (error) {
-      console.error(
-        "GET inventory error:",
-        error.message
-      );
+      console.error("GET inventory error:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
 
       return jsonError(
         "Gagal mengambil data inventory.",
@@ -321,8 +357,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Data inventory berhasil diambil.",
+        message: "Data inventory berhasil diambil.",
         data: data ?? [],
       },
       {
@@ -332,44 +367,29 @@ export async function GET() {
     );
   } catch (error) {
     console.error(
-      "GET items error:",
+      "GET items unexpected error:",
       error
     );
 
-    return jsonError(
-      "Internal Server Error",
-      500
-    );
+    return jsonError("Internal Server Error", 500);
   }
 }
 
-// ==========================================
-// POST /api/v1/items
-// ==========================================
-
-export async function POST(
-  request: NextRequest
-) {
+// POST inventory with idempotency protection
+export async function POST(request: NextRequest) {
   try {
-    // 1. Verify admin access.
-    const auth = await verifyAdmin();
+    const auth = await verifyApiStaff();
 
     if (!auth.authorized) {
-      return jsonError(
-        auth.message,
-        auth.status
-      );
+      return jsonError(auth.message, auth.status);
     }
 
-    // 2. Verify request origin.
-    const originError =
-      verifyRequestOrigin(request);
+    const originError = verifyRequestOrigin(request);
 
     if (originError) {
       return originError;
     }
 
-    // 3. Verify content type.
     const contentTypeError =
       verifyJsonContentType(request);
 
@@ -377,7 +397,6 @@ export async function POST(
       return contentTypeError;
     }
 
-    // 4. Parse JSON body.
     let body: unknown;
 
     try {
@@ -389,9 +408,7 @@ export async function POST(
       );
     }
 
-    // 5. Validate input.
-    const validation =
-      validateItemInput(body);
+    const validation = validateItemInput(body);
 
     if (!validation.valid) {
       return jsonError(
@@ -400,20 +417,57 @@ export async function POST(
       );
     }
 
-    // 6. Insert item into database.
-    const { data, error } = await supabaseAdmin
-      .from("items")
-      .insert(validation.data)
-      .select(
-        "id, name, category, unit, initial_stock, minimum_stock"
-      )
-      .single();
+    const item = validation.data;
+
+    // Atomic database operation via PostgreSQL RPC
+    const { data, error } = await supabaseAdmin.rpc(
+      "create_inventory_item",
+      {
+        p_name: item.name,
+        p_category: item.category,
+        p_unit: item.unit,
+        p_initial_stock: item.initial_stock,
+        p_minimum_stock: item.minimum_stock,
+        p_idempotency_key: item.idempotency_key,
+      }
+    );
 
     if (error) {
-      console.error(
-        "POST inventory error:",
-        error.message
-      );
+      const message = error.message;
+
+      if (
+        message.includes("IDEMPOTENCY_KEY_CONFLICT")
+      ) {
+        return jsonError(
+          "Idempotency key sudah digunakan untuk data barang berbeda.",
+          409
+        );
+      }
+
+      if (
+        message.includes("INVALID_ITEM_INPUT") ||
+        message.includes("INVALID_IDEMPOTENCY_KEY")
+      ) {
+        return jsonError(
+          "Data barang tidak valid.",
+          400
+        );
+      }
+
+      if (
+        message.includes("IDEMPOTENCY_RETRY_REQUIRED")
+      ) {
+        return jsonError(
+          "Permintaan belum selesai. Silakan ulangi dengan key yang sama.",
+          503
+        );
+      }
+
+      console.error("POST inventory RPC error:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
 
       return jsonError(
         "Gagal menyimpan barang ke database.",
@@ -421,27 +475,36 @@ export async function POST(
       );
     }
 
+    if (!isCreateItemRpcResponse(data)) {
+      console.error(
+        "POST inventory RPC returned invalid data."
+      );
+
+      return jsonError(
+        "Respons database tidak valid.",
+        500
+      );
+    }
+
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Barang berhasil ditambahkan.",
-        data,
+        message: data.replayed
+          ? "Barang sudah berhasil ditambahkan sebelumnya."
+          : "Barang berhasil ditambahkan.",
+        data: data.item,
       },
       {
-        status: 201,
+        status: data.replayed ? 200 : 201,
         headers: noStoreHeaders,
       }
     );
   } catch (error) {
     console.error(
-      "POST items error:",
+      "POST items unexpected error:",
       error
     );
 
-    return jsonError(
-      "Internal Server Error",
-      500
-    );
+    return jsonError("Internal Server Error", 500);
   }
 }

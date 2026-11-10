@@ -1,11 +1,12 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+
 import {
   Dialog,
   DialogContent,
@@ -24,7 +25,7 @@ type DeleteItemDialogProps = {
 };
 
 type ApiResponse = {
-  success: boolean;
+  success?: boolean;
   message?: string;
 };
 
@@ -37,18 +38,23 @@ export function DeleteItemDialog({
   const [error, setError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Prevent simultaneous delete requests.
+  const deletingRef = useRef(false);
+
   function handleOpenChange(nextOpen: boolean) {
-    if (isDeleting) return;
+    if (deletingRef.current) return;
 
     setOpen(nextOpen);
     setError("");
   }
 
   async function handleDelete() {
-    if (isDeleting) return;
+    // Synchronous double-submit protection.
+    if (deletingRef.current) return;
 
-    setError("");
+    deletingRef.current = true;
     setIsDeleting(true);
+    setError("");
 
     try {
       const response = await fetch(
@@ -56,32 +62,44 @@ export function DeleteItemDialog({
         {
           method: "DELETE",
           credentials: "same-origin",
+          cache: "no-store",
         }
       );
 
-      const result: ApiResponse = await response.json();
+      // Handle invalid or empty JSON responses safely.
+      const result: ApiResponse | null =
+        await response.json().catch(() => null);
 
-      if (!response.ok || !result.success) {
+      if (!response.ok || result?.success !== true) {
         throw new Error(
-          result.message ?? "Gagal menghapus barang."
+          result?.message ??
+            "Gagal menghapus barang. Silakan coba lagi."
         );
       }
 
+      // Deletion was confirmed by the server.
       setOpen(false);
+      setError("");
+
+      // Refresh inventory Server Components.
       router.refresh();
-    } catch (error) {
+    } catch (caughtError) {
       setError(
-        error instanceof Error
-          ? error.message
+        caughtError instanceof Error
+          ? caughtError.message
           : "Terjadi kesalahan saat menghapus barang."
       );
     } finally {
+      deletingRef.current = false;
       setIsDeleting(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+    >
       <DialogTrigger asChild>
         <Button
           type="button"
@@ -89,6 +107,7 @@ export function DeleteItemDialog({
           size="sm"
           className="text-destructive hover:text-destructive"
           aria-label={`Delete ${item.name}`}
+          disabled={isDeleting}
         >
           <Trash2 className="mr-2 h-4 w-4" />
           Delete
@@ -97,11 +116,16 @@ export function DeleteItemDialog({
 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Delete Item</DialogTitle>
+          <DialogTitle>
+            Delete Item
+          </DialogTitle>
+
           <DialogDescription>
             Are you sure you want to permanently delete{" "}
-            <span className="font-semibold">{item.name}</span>?
-            This action cannot be undone.
+            <span className="font-semibold">
+              {item.name}
+            </span>
+            ? This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
 
@@ -111,7 +135,10 @@ export function DeleteItemDialog({
         </p>
 
         {error && (
-          <p role="alert" className="text-sm text-destructive">
+          <p
+            role="alert"
+            className="text-sm text-destructive"
+          >
             {error}
           </p>
         )}
@@ -129,7 +156,9 @@ export function DeleteItemDialog({
           <Button
             type="button"
             variant="destructive"
-            onClick={handleDelete}
+            onClick={() => {
+              void handleDelete();
+            }}
             disabled={isDeleting}
           >
             {isDeleting ? (

@@ -1,73 +1,39 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { verifyApiStaff } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const headers = {
+const responseHeaders = {
   "Cache-Control": "private, no-store",
+  "X-Content-Type-Options": "nosniff",
 };
 
-const uuidPattern =
+const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+// Return consistent API errors
 function jsonError(message: string, status: number) {
   return NextResponse.json(
-    { success: false, message },
-    { status, headers }
+    {
+      success: false,
+      message,
+    },
+    {
+      status,
+      headers: responseHeaders,
+    }
   );
 }
 
-// ==========================================
-// AUTHORIZATION
-// ==========================================
-
-async function verifyAdmin() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    return jsonError(
-      "Unauthorized. Silakan login terlebih dahulu.",
-      401
-    );
-  }
-
-  const adminUserId = process.env.ADMIN_USER_ID;
-
-  if (!adminUserId) {
-    console.error("ADMIN_USER_ID belum dikonfigurasi.");
-
-    return jsonError(
-      "Konfigurasi server belum lengkap.",
-      500
-    );
-  }
-
-  if (user.id !== adminUserId) {
-    return jsonError(
-      "Forbidden. Hanya admin yang dapat mengaktifkan barang.",
-      403
-    );
-  }
-
-  return null;
-}
-
-// ==========================================
-// ORIGIN VALIDATION
-// ==========================================
-
+// Verify same-origin requests
 function verifyOrigin(request: NextRequest) {
   const configuredOrigin =
     process.env.APP_ORIGIN ??
@@ -121,33 +87,34 @@ function verifyOrigin(request: NextRequest) {
   return null;
 }
 
-// ==========================================
 // POST /api/v1/items/[id]/restore
-// ==========================================
-
 export async function POST(
   request: NextRequest,
   context: RouteContext
 ) {
   try {
-    // 1. Verify admin access.
-    const authError = await verifyAdmin();
+    // Verify active Admin or Staff
+    const auth = await verifyApiStaff();
 
-    if (authError) return authError;
+    if (!auth.authorized) {
+      return jsonError(auth.message, auth.status);
+    }
 
-    // 2. Verify request origin.
+    // Verify request origin
     const originError = verifyOrigin(request);
 
-    if (originError) return originError;
+    if (originError) {
+      return originError;
+    }
 
-    // 3. Validate item ID.
+    // Validate item ID
     const { id } = await context.params;
 
-    if (!uuidPattern.test(id)) {
+    if (!UUID_REGEX.test(id)) {
       return jsonError("ID barang tidak valid.", 400);
     }
 
-    // 4. Restore item atomically using PostgreSQL RPC.
+    // Restore item through PostgreSQL RPC
     const { data, error } = await supabaseAdmin.rpc(
       "restore_inventory_item",
       {
@@ -156,26 +123,23 @@ export async function POST(
     );
 
     if (error) {
-      if (error.message.includes("ITEM_NOT_FOUND")) {
-        return jsonError(
-          "Barang tidak ditemukan.",
-          404
-        );
+      const message = error.message;
+
+      if (message.includes("ITEM_NOT_FOUND")) {
+        return jsonError("Barang tidak ditemukan.", 404);
       }
 
-      if (
-        error.message.includes("ITEM_ALREADY_ACTIVE")
-      ) {
+      if (message.includes("ITEM_ALREADY_ACTIVE")) {
         return jsonError(
           "Barang sudah aktif.",
           409
         );
       }
 
-      console.error(
-        "RESTORE item RPC error:",
-        error.message
-      );
+      console.error("RESTORE item RPC error:", {
+        code: error.code,
+        message: error.message,
+      });
 
       return jsonError(
         "Gagal mengaktifkan barang.",
@@ -184,10 +148,7 @@ export async function POST(
     }
 
     if (!data) {
-      return jsonError(
-        "Barang tidak ditemukan.",
-        404
-      );
+      return jsonError("Barang tidak ditemukan.", 404);
     }
 
     return NextResponse.json(
@@ -200,7 +161,10 @@ export async function POST(
           archived_at: data.archived_at,
         },
       },
-      { status: 200, headers }
+      {
+        status: 200,
+        headers: responseHeaders,
+      }
     );
   } catch (error) {
     console.error("RESTORE item error:", error);

@@ -1,9 +1,11 @@
 
 import Link from "next/link";
+
 import {
   redirect,
   unstable_rethrow,
 } from "next/navigation";
+
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,6 +31,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
@@ -66,26 +69,59 @@ type HistoryRow = {
 };
 
 const PAGE_SIZE = 10;
+const MAX_SEARCH_LENGTH = 100;
 
-const validTypes: TransactionType[] = [
+const VALID_TYPES: readonly TransactionType[] = [
   "stock_in",
   "stock_out",
   "usage",
   "waste",
 ];
 
-const quantityFormatter = new Intl.NumberFormat("id-ID", {
-  maximumFractionDigits: 2,
-});
+const numberFormatter = new Intl.NumberFormat(
+  "id-ID",
+  {
+    maximumFractionDigits: 0,
+  }
+);
 
-function getFirstParam(value?: string | string[]) {
+function getFirstParam(
+  value?: string | string[]
+): string {
   return Array.isArray(value)
     ? value[0] ?? ""
     : value ?? "";
 }
 
-function escapeLike(value: string) {
-  return value.replace(/[\\%_]/g, "\\$&");
+function normalizeTransactionType(
+  value: string
+): string {
+  if (
+    value === "all" ||
+    VALID_TYPES.includes(value as TransactionType)
+  ) {
+    return value;
+  }
+
+  return "all";
+}
+
+function normalizeArchiveStatus(
+  value: string
+): ArchiveStatus {
+  if (value === "archived" || value === "all") {
+    return value;
+  }
+
+  return "active";
+}
+
+// Escape LIKE wildcard characters in item-name searches.
+function escapeLike(value: string): string {
+  return value.replace(
+    /[\\%_]/g,
+    "\\$&"
+  );
 }
 
 function buildPageUrl(
@@ -96,72 +132,64 @@ function buildPageUrl(
   customStartDate: string,
   customEndDate: string,
   targetPage: number
-) {
-  const query = new URLSearchParams();
+): string {
+  const params = new URLSearchParams();
 
   if (search) {
-    query.set("search", search);
+    params.set("search", search);
   }
 
   if (type !== "all") {
-    query.set("type", type);
+    params.set("type", type);
   }
 
   if (status !== "active") {
-    query.set("status", status);
+    params.set("status", status);
   }
 
   if (period !== "this_month") {
-    query.set("period", period);
+    params.set("period", period);
   }
 
   if (period === "custom") {
     if (customStartDate) {
-      query.set("startDate", customStartDate);
+      params.set("startDate", customStartDate);
     }
 
     if (customEndDate) {
-      query.set("endDate", customEndDate);
+      params.set("endDate", customEndDate);
     }
   }
 
-  query.set("page", String(targetPage));
+  params.set(
+    "page",
+    String(Math.max(1, targetPage))
+  );
 
-  return `/transactions?${query.toString()}`;
+  return `/transactions?${params.toString()}`;
 }
 
 export default async function TransactionsPage({
   searchParams,
 }: PageProps) {
-  // Allow active Admin and Staff accounts.
-  // Suspended and pending accounts remain blocked.
+  // Authentication and authorization.
+  // Only approved users can access this page.
   await requireApprovedUser();
 
   const params = await searchParams;
 
+  // Normalize query parameters.
   const search = getFirstParam(params.search)
     .trim()
-    .slice(0, 100);
+    .slice(0, MAX_SEARCH_LENGTH);
 
-  const requestedType =
-    getFirstParam(params.type) || "all";
+  const type = normalizeTransactionType(
+    getFirstParam(params.type) || "all"
+  );
 
-  const type =
-    requestedType === "all" ||
-    validTypes.includes(
-      requestedType as TransactionType
-    )
-      ? requestedType
-      : "all";
-
-  const requestedStatus =
-    getFirstParam(params.status) || "active";
-
-  const status: ArchiveStatus =
-    requestedStatus === "archived" ||
-    requestedStatus === "all"
-      ? requestedStatus
-      : "active";
+  const status = normalizeArchiveStatus(
+    getFirstParam(params.status) || "active"
+  );
 
   const period = normalizePeriod(
     getFirstParam(params.period)
@@ -187,9 +215,9 @@ export default async function TransactionsPage({
     customEndDate
   );
 
-  const requestedPage = Number(
-    getFirstParam(params.page) || "1"
-  );
+  const rawPage = getFirstParam(params.page);
+
+  const requestedPage = Number(rawPage || "1");
 
   const page =
     Number.isSafeInteger(requestedPage) &&
@@ -208,7 +236,9 @@ export default async function TransactionsPage({
       targetPage
     );
 
-  const statusUrl = (targetStatus: ArchiveStatus) =>
+  const statusUrl = (
+    targetStatus: ArchiveStatus
+  ) =>
     buildPageUrl(
       search,
       type,
@@ -226,32 +256,39 @@ export default async function TransactionsPage({
   try {
     let matchingItemIds: string[] | null = null;
 
-    // Search inventory items by name
+    // Search inventory items by name.
     if (search && !hasInvalidRange) {
       const safeSearch = escapeLike(search);
 
-      const { data, error } = await supabaseAdmin
+      const {
+        data: matchingItems,
+        error: searchError,
+      } = await supabaseAdmin
         .from("items")
         .select("id")
-        .ilike("name", `%${safeSearch}%`);
+        .ilike(
+          "name",
+          `%${safeSearch}%`
+        );
 
-      if (error) {
-        throw error;
+      if (searchError) {
+        throw searchError;
       }
 
-      matchingItemIds = (data ?? []).map(
-        (item) => item.id
-      );
+      matchingItemIds = (
+        matchingItems ?? []
+      ).map((item) => item.id);
     }
 
-    if (
+    const shouldFetch =
       !hasInvalidRange &&
       (
         matchingItemIds === null ||
         matchingItemIds.length > 0
-      )
-    ) {
-      // Count matching transactions
+      );
+
+    if (shouldFetch) {
+      // Count transactions matching filters.
       let countQuery = supabaseAdmin
         .from("stock_transactions")
         .select(
@@ -286,7 +323,10 @@ export default async function TransactionsPage({
       if (endDate) {
         countQuery = countQuery.lt(
           "created_at",
-          jakartaDateBoundary(endDate, true)
+          jakartaDateBoundary(
+            endDate,
+            true
+          )
         );
       }
 
@@ -315,16 +355,17 @@ export default async function TransactionsPage({
       total = count ?? 0;
 
       if (total > 0) {
-        const totalPages = Math.ceil(
+        const availablePages = Math.ceil(
           total / PAGE_SIZE
         );
 
-        if (page > totalPages) {
-          redirect(pageUrl(totalPages));
+        // Redirect before querying an invalid page.
+        if (page > availablePages) {
+          redirect(pageUrl(availablePages));
         }
 
-        // Fetch paginated transaction history
-        let query = supabaseAdmin
+        // Fetch transaction history.
+        let historyQuery = supabaseAdmin
           .from("stock_transactions")
           .select(
             `
@@ -343,40 +384,43 @@ export default async function TransactionsPage({
           );
 
         if (type !== "all") {
-          query = query.eq(
+          historyQuery = historyQuery.eq(
             "transaction_type",
             type
           );
         }
 
         if (matchingItemIds !== null) {
-          query = query.in(
+          historyQuery = historyQuery.in(
             "item_id",
             matchingItemIds
           );
         }
 
         if (startDate) {
-          query = query.gte(
+          historyQuery = historyQuery.gte(
             "created_at",
             jakartaDateBoundary(startDate)
           );
         }
 
         if (endDate) {
-          query = query.lt(
+          historyQuery = historyQuery.lt(
             "created_at",
-            jakartaDateBoundary(endDate, true)
+            jakartaDateBoundary(
+              endDate,
+              true
+            )
           );
         }
 
         if (status === "active") {
-          query = query.is(
+          historyQuery = historyQuery.is(
             "item.archived_at",
             null
           );
         } else if (status === "archived") {
-          query = query.not(
+          historyQuery = historyQuery.not(
             "item.archived_at",
             "is",
             null
@@ -384,40 +428,46 @@ export default async function TransactionsPage({
         }
 
         const from = (page - 1) * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
 
         const {
           data,
-          error,
-        } = await query
+          error: historyError,
+        } = await historyQuery
           .order("created_at", {
             ascending: false,
           })
           .order("id", {
             ascending: false,
           })
-          .range(
-            from,
-            from + PAGE_SIZE - 1
-          );
+          .range(from, to);
 
-        if (error) {
-          throw error;
+        if (historyError) {
+          throw historyError;
         }
 
-        // Format history for the UI
+        // Normalize Supabase response for the UI.
         history = (data ?? []).map((row) => {
-          const itemRelation = row.item;
+          const relation = row.item;
 
-          const item = Array.isArray(itemRelation)
-            ? itemRelation[0]
-            : itemRelation;
+          const item = Array.isArray(relation)
+            ? relation[0]
+            : relation;
+
+          const numericQuantity = Number(
+            row.quantity
+          );
 
           return {
             id: row.id,
             item_id: row.item_id,
             transaction_type:
               row.transaction_type,
-            quantity: Number(row.quantity),
+            quantity: Number.isFinite(
+              numericQuantity
+            )
+              ? numericQuantity
+              : 0,
             notes: row.notes,
             created_at: row.created_at,
             itemName:
@@ -430,6 +480,7 @@ export default async function TransactionsPage({
       }
     }
   } catch (error) {
+    // Preserve Next.js redirects and internal errors.
     unstable_rethrow(error);
 
     console.error(
@@ -446,6 +497,8 @@ export default async function TransactionsPage({
     Math.ceil(total / PAGE_SIZE)
   );
 
+  // Handle an out-of-range page when there are
+  // no matching transactions.
   if (!errorMessage && page > totalPages) {
     redirect(pageUrl(totalPages));
   }
@@ -467,9 +520,18 @@ export default async function TransactionsPage({
     value: ArchiveStatus;
     label: string;
   }[] = [
-    { value: "active", label: "Active" },
-    { value: "archived", label: "Archived" },
-    { value: "all", label: "All" },
+    {
+      value: "active",
+      label: "Active",
+    },
+    {
+      value: "archived",
+      label: "Archived",
+    },
+    {
+      value: "all",
+      label: "All",
+    },
   ];
 
   const sectionTitle =
@@ -490,6 +552,7 @@ export default async function TransactionsPage({
                 aria-hidden="true"
                 className="size-7 shrink-0"
               />
+
               Transaction History
             </h1>
 
@@ -562,7 +625,7 @@ export default async function TransactionsPage({
 
             {!errorMessage && (
               <p className="text-sm text-muted-foreground">
-                {quantityFormatter.format(total)}{" "}
+                {numberFormatter.format(total)}{" "}
                 transaction
                 {total === 1 ? "" : "s"} found
               </p>
@@ -582,7 +645,9 @@ export default async function TransactionsPage({
                 <TransactionHistoryList
                   history={history}
                   status={status}
-                  hasInvalidRange={hasInvalidRange}
+                  hasInvalidRange={
+                    hasInvalidRange
+                  }
                 />
 
                 {/* Pagination */}
@@ -595,7 +660,7 @@ export default async function TransactionsPage({
                     <p className="text-xs text-muted-foreground">
                       {total === 0
                         ? "Showing 0 transactions"
-                        : `Showing ${showingFrom}–${showingTo} of ${quantityFormatter.format(total)} transactions`}
+                        : `Showing ${showingFrom}–${showingTo} of ${numberFormatter.format(total)} transactions`}
                     </p>
                   </div>
 
@@ -606,7 +671,9 @@ export default async function TransactionsPage({
                         size="sm"
                         asChild
                       >
-                        <Link href={pageUrl(page - 1)}>
+                        <Link
+                          href={pageUrl(page - 1)}
+                        >
                           <ChevronLeft
                             aria-hidden="true"
                             className="size-4"
@@ -634,7 +701,9 @@ export default async function TransactionsPage({
                         size="sm"
                         asChild
                       >
-                        <Link href={pageUrl(page + 1)}>
+                        <Link
+                          href={pageUrl(page + 1)}
+                        >
                           Next
                           <ChevronRight
                             aria-hidden="true"
