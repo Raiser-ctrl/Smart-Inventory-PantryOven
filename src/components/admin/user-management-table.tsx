@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -31,6 +30,11 @@ type UserRole = "admin" | "staff";
 type AccountStatus = "pending" | "active" | "suspended";
 type StatusFilter = "all" | AccountStatus;
 type TargetStatus = "active" | "suspended";
+
+type PendingRoleAction = {
+  user: ManagedUser;
+  role: UserRole;
+};
 
 type ManagedUser = {
   id: string;
@@ -134,82 +138,128 @@ function UserAvatar({ user }: { user: ManagedUser }) {
 
 function UserActions({
   user,
+  currentUserId,
+  activeAdminCount,
   saving,
-  onAction,
+  onStatusAction,
+  onRoleAction,
   mobile = false,
 }: {
   user: ManagedUser;
+  currentUserId: string;
+  activeAdminCount: number;
   saving: boolean;
-  onAction: (user: ManagedUser, status: TargetStatus) => void;
+  onStatusAction: (user: ManagedUser, status: TargetStatus) => void;
+  onRoleAction: (user: ManagedUser, role: UserRole) => void;
   mobile?: boolean;
 }) {
-  if (user.role === "admin") {
+  const isSelf = user.id === currentUserId;
+  const isLastAdmin = user.role === "admin" && activeAdminCount <= 1;
+  const buttonClass = mobile ? "h-9 flex-1" : "h-8";
+
+  if (isSelf) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
         <ShieldCheck aria-hidden="true" className="size-3.5" />
-        Protected
+        Akun Anda (Protected)
       </span>
     );
   }
 
-  const buttonClass = mobile ? "h-9 flex-1" : "h-8";
-
-  if (user.status === "pending") {
+  if (user.role === "admin") {
     return (
-      <div className={`flex gap-2 ${mobile ? "w-full" : ""}`}>
-        <Button
-          type="button"
-          size="sm"
-          disabled={saving}
-          onClick={() => onAction(user, "active")}
-          className={`${buttonClass} bg-[#687c59] text-white hover:bg-[#56694a]`}
-        >
-          Approve
-        </Button>
+      <div className={mobile ? "flex w-full flex-col gap-2" : "flex items-center gap-2"}>
+        {isLastAdmin ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <ShieldCheck aria-hidden="true" className="size-3.5" />
+            Admin terakhir (Protected)
+          </span>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={saving || user.status !== "active"}
+            onClick={() => onRoleAction(user, "staff")}
+            className={mobile ? "h-9 w-full" : "h-8"}
+          >
+            Demote to Staff
+          </Button>
+        )}
+      </div>
+    );
+  }
 
+  return (
+    <div className={mobile ? "flex w-full flex-col gap-2" : "flex flex-wrap justify-end gap-2"}>
+      <div className={mobile ? "flex w-full gap-2" : "flex gap-2"}>
+        {user.status === "pending" ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              disabled={saving}
+              onClick={() => onStatusAction(user, "active")}
+              className={`${buttonClass} bg-[#687c59] text-white hover:bg-[#56694a]`}
+            >
+              Approve
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={saving}
+              onClick={() => onStatusAction(user, "suspended")}
+              className={buttonClass}
+            >
+              Suspend
+            </Button>
+          </>
+        ) : user.status === "active" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={saving}
+            onClick={() => onStatusAction(user, "suspended")}
+            className={mobile ? "h-9 w-full" : "h-8"}
+          >
+            Suspend
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            disabled={saving}
+            onClick={() => onStatusAction(user, "active")}
+            className={`${mobile ? "h-9 w-full" : "h-8"} bg-[#687c59] text-white hover:bg-[#56694a]`}
+          >
+            Reactivate
+          </Button>
+        )}
+      </div>
+      {user.status === "active" && (
         <Button
           type="button"
           size="sm"
           variant="outline"
           disabled={saving}
-          onClick={() => onAction(user, "suspended")}
-          className={buttonClass}
+          onClick={() => onRoleAction(user, "admin")}
+          className={mobile ? "h-9 w-full" : "h-8"}
         >
-          Suspend
+          <ShieldCheck aria-hidden="true" className="mr-1.5 size-3.5" />
+          Promote to Admin
         </Button>
-      </div>
-    );
-  }
-
-  if (user.status === "active") {
-    return (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={saving}
-        onClick={() => onAction(user, "suspended")}
-        className={mobile ? "h-9 w-full" : "h-8"}
-      >
-        Suspend
-      </Button>
-    );
-  }
-
-  return (
-    <Button
-      type="button"
-      size="sm"
-      disabled={saving}
-      onClick={() => onAction(user, "active")}
-      className={`${mobile ? "h-9 w-full" : "h-8"} bg-[#687c59] text-white hover:bg-[#56694a]`}
-    >
-      Reactivate
-    </Button>
+      )}
+    </div>
   );
 }
 
-export function UserManagementTable() {
+type UserManagementTableProps = {
+  currentUserId: string;
+};
+
+export function UserManagementTable({ currentUserId }: UserManagementTableProps) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -219,6 +269,8 @@ export function UserManagementTable() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [pendingAction, setPendingAction] =
     useState<PendingAction | null>(null);
+
+  const [pendingRoleAction, setPendingRoleAction] = useState<PendingRoleAction | null>(null);
 
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -308,6 +360,7 @@ export function UserManagementTable() {
       pending: users.filter((user) => user.status === "pending").length,
       active: users.filter((user) => user.status === "active").length,
       suspended: users.filter((user) => user.status === "suspended").length,
+      activeAdmins: users.filter((user) => user.role === "admin" && user.status === "active").length,
     }),
     [users]
   );
@@ -387,6 +440,73 @@ export function UserManagementTable() {
         error instanceof Error
           ? error.message
           : "Gagal memperbarui status akun."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function requestRoleChange(user: ManagedUser, role: UserRole) {
+    if (saving || user.id === currentUserId || user.status !== "active") return;
+    if (role === user.role) return;
+    if (user.role === "admin" && counts.activeAdmins <= 1) return;
+
+    setErrorMessage("");
+    setSuccessMessage("");
+    setPendingRoleAction({ user, role });
+  }
+
+  async function confirmRoleChange() {
+    if (!pendingRoleAction || saving) return;
+
+    const { user, role } = pendingRoleAction;
+    if (user.id === currentUserId || user.status !== "active" || role === user.role) {
+      setPendingRoleAction(null);
+      return;
+    }
+    if (user.role === "admin" && counts.activeAdmins <= 1) {
+      setPendingRoleAction(null);
+      setErrorMessage("Admin aktif terakhir tidak dapat diturunkan menjadi Staff.");
+      return;
+    }
+
+    setSaving(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/v1/admin/users/${encodeURIComponent(user.id)}/role`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        }
+      );
+
+      const result: UpdateResponse = await response.json();
+
+      if (!response.ok || result.status !== "success") {
+        throw new Error(result.message || "Gagal memperbarui role pengguna.");
+      }
+
+      if (result.data) {
+        const updated = result.data;
+        setUsers((current) =>
+          current.map((item) =>
+            item.id === updated.id ? { ...item, ...updated } : item
+          )
+        );
+      } else {
+        const data = await fetchUsers();
+        setUsers(data);
+      }
+
+      setPendingRoleAction(null);
+      setSuccessMessage(result.message || "Role pengguna berhasil diperbarui.");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Gagal memperbarui role pengguna."
       );
     } finally {
       setSaving(false);
@@ -611,7 +731,10 @@ export function UserManagementTable() {
                     <UserActions
                       user={user}
                       saving={saving}
-                      onAction={requestStatusChange}
+                      currentUserId={currentUserId}
+                      activeAdminCount={counts.activeAdmins}
+                      onStatusAction={requestStatusChange}
+                      onRoleAction={requestRoleChange}
                       mobile
                     />
                   </div>
@@ -685,7 +808,10 @@ export function UserManagementTable() {
                           <UserActions
                             user={user}
                             saving={saving}
-                            onAction={requestStatusChange}
+                            currentUserId={currentUserId}
+                            activeAdminCount={counts.activeAdmins}
+                            onStatusAction={requestStatusChange}
+                            onRoleAction={requestRoleChange}
                           />
                         </div>
                       </td>
@@ -786,6 +912,82 @@ export function UserManagementTable() {
                   {pendingAction.status === "active"
                     ? "Konfirmasi Aktivasi"
                     : "Konfirmasi Suspend"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Role change confirmation */}
+      <Dialog
+        open={pendingRoleAction !== null}
+        onOpenChange={(open) => {
+          if (!open && !saving) setPendingRoleAction(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={!saving}
+          onEscapeKeyDown={(event) => {
+            if (saving) event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            if (saving) event.preventDefault();
+          }}
+          className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-5 sm:p-6"
+        >
+          {pendingRoleAction && (
+            <>
+              <DialogHeader>
+                <div className="mb-3 flex size-11 items-center justify-center rounded-xl bg-[#edf1e8]">
+                  <ShieldCheck aria-hidden="true" className="size-5 text-[#687c59]" />
+                </div>
+                <DialogTitle>
+                  {pendingRoleAction.role === "admin"
+                    ? "Promote menjadi Admin?"
+                    : "Demote menjadi Staff?"}
+                </DialogTitle>
+                <DialogDescription className="leading-6">
+                  {pendingRoleAction.role === "admin"
+                    ? "Pengguna akan memperoleh akses Administrator untuk mengelola akun dan fitur administratif PantryOven."
+                    : "Pengguna akan kehilangan akses Administrator dan kembali memiliki akses Staff."}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="min-w-0 rounded-xl bg-muted/50 p-3">
+                <p className="truncate text-sm font-semibold">
+                  {getDisplayName(pendingRoleAction.user)}
+                </p>
+                <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                  {pendingRoleAction.user.id}
+                </p>
+                <p className="mt-2 text-xs font-medium capitalize">
+                  {pendingRoleAction.user.role} → {pendingRoleAction.role}
+                </p>
+              </div>
+
+              <DialogFooter className="mt-2 flex-col gap-2 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() => setPendingRoleAction(null)}
+                  className="w-full sm:w-auto"
+                >
+                  Batal
+                </Button>
+                <Button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void confirmRoleChange()}
+                  className="w-full bg-[#687c59] text-white hover:bg-[#56694a] sm:w-auto"
+                >
+                  {saving && (
+                    <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" />
+                  )}
+                  {pendingRoleAction.role === "admin"
+                    ? "Konfirmasi Promote"
+                    : "Konfirmasi Demote"}
                 </Button>
               </DialogFooter>
             </>
