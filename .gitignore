@@ -1,41 +1,161 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
+# ==========================================
+# PantryOven - Git Ignore
+# Next.js + Supabase + FastAPI + ML + RAG
+# ==========================================
+
+
+# ==========================================
+# DEPENDENCIES
+# ==========================================
+
+/node_modules/
 /.pnp
 .pnp.*
+
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
 
-# next.js
+# ==========================================
+# NEXT.JS
+# ==========================================
+
 /.next/
 /out/
+/build/
+/dist/
 
-# production
-/build
 
-# misc
-.DS_Store
+# ==========================================
+# TESTING & COVERAGE
+# ==========================================
+
+/coverage/
+.pytest_cache/
+.coverage
+htmlcov/
+
+
+# ==========================================
+# ENVIRONMENT VARIABLES & SECRETS
+# ==========================================
+
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Allow safe environment templates
+!.env.example
+!**/.env.example
+
+# Private keys and certificates
 *.pem
+*.key
+*.p12
+*.pfx
 
-# debug
+
+# ==========================================
+# PYTHON & FASTAPI
+# ==========================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+
+# ==========================================
+# MACHINE LEARNING
+# ==========================================
+
+# Generated training datasets
+/ml_model/data/
+
+# Trained models and artifacts
+/ml_model/models/
+
+# Other generated model artifacts
+*.joblib
+*.pkl
+*.pickle
+
+
+# ==========================================
+# RAG & CHROMADB
+# ==========================================
+
+# Local vector database
+/rag/chroma_db/
+
+# Local embedding model cache
+/rag/model_cache/
+
+# ChromaDB files
+*.sqlite3-journal
+
+
+# ==========================================
+# LOGS & TEMPORARY FILES
+# ==========================================
+
+*.log
+logs/
+tmp/
+temp/
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
 
-# vercel
-.vercel
+# ==========================================
+# TYPESCRIPT
+# ==========================================
 
-# typescript
 *.tsbuildinfo
 next-env.d.ts
+
+
+# ==========================================
+# VERCEL
+# ==========================================
+
+.vercel/
+
+
+# ==========================================
+# EDITOR & OS
+# ==========================================
+
+.DS_Store
+Thumbs.db
+
+.vscode/*
+!.vscode/extensions.json
+
+.idea/
+
+
+# ==========================================
+# LOCAL BACKUPS
+# ==========================================
+
+*.bak
+*.backup
+*.tmp
+*.swp
+*~

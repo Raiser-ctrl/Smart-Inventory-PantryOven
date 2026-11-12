@@ -32,6 +32,8 @@ import {
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
 import { EditItemDialog } from "@/components/inventory/EditItemDialog";
 import StockTransactionDialog from "@/components/inventory/StockTransactionDialog";
+import AiStockPrediction from "@/components/inventory/AiStockPrediction";
+import AiStockAssistant from "@/components/inventory/AiStockAssistant";
 import { useSwipeTabs } from "@/hooks/useSwipeTabs";
 
 import { Badge } from "@/components/ui/badge";
@@ -872,6 +874,25 @@ export default function InventoryWorkspace({
           </Button>
         </div>
       </header>
+
+      {/* AI Stock Prediction */}
+      <AiStockPrediction
+        items={activeItems.map((item) => ({
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+        }))}
+      />
+
+
+      {/* AI Stock Assistant (RAG + Gemini) */}
+      <AiStockAssistant
+        items={activeItems.map((item) => ({
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+        }))}
+      />
 
       {/* Inventory container */}
       <section
