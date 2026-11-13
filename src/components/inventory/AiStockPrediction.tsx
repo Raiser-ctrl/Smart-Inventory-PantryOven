@@ -18,6 +18,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { INVENTORY_UPDATED_EVENT } from "@/lib/inventory-events";
 
 type InventoryOption = {
   id: string;
@@ -99,6 +100,7 @@ export default function AiStockPrediction({
 }: Props) {
   const [itemId, setItemId] = useState("");
   const [leadTime, setLeadTime] = useState("3");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] =
@@ -123,6 +125,7 @@ export default function AiStockPrediction({
 
   useEffect(() => {
     return () => {
+      requestIdRef.current += 1;
       requestRef.current?.abort();
     };
   }, []);
@@ -136,6 +139,31 @@ export default function AiStockPrediction({
     setResult(null);
     setError("");
   }
+
+  // Clear outdated predictions when inventory changes.
+  useEffect(() => {
+    function handleInventoryUpdated() {
+      requestIdRef.current += 1;
+      requestRef.current?.abort();
+      requestRef.current = null;
+
+      setLoading(false);
+      setResult(null);
+      setError("");
+    }
+
+    window.addEventListener(
+      INVENTORY_UPDATED_EVENT,
+      handleInventoryUpdated
+    );
+
+    return () => {
+      window.removeEventListener(
+        INVENTORY_UPDATED_EVENT,
+        handleInventoryUpdated
+      );
+    };
+  }, []);
 
   async function handlePredict(
     event: FormEvent<HTMLFormElement>
@@ -356,6 +384,7 @@ export default function AiStockPrediction({
               <p className="text-xs text-muted-foreground">
                 Prediction result
               </p>
+
               <p className="font-semibold">
                 {result.item.name}
               </p>
@@ -378,6 +407,7 @@ export default function AiStockPrediction({
               <p className="text-xs text-muted-foreground">
                 Current stock
               </p>
+
               <p className="mt-1 text-lg font-semibold tabular-nums">
                 {numberFormatter.format(
                   result.features.current_stock
@@ -390,6 +420,7 @@ export default function AiStockPrediction({
               <p className="text-xs text-muted-foreground">
                 Minimum stock
               </p>
+
               <p className="mt-1 text-lg font-semibold tabular-nums">
                 {numberFormatter.format(
                   result.features.minimum_stock
@@ -402,6 +433,7 @@ export default function AiStockPrediction({
               <p className="text-xs text-muted-foreground">
                 Model confidence
               </p>
+
               <p className="mt-1 text-lg font-semibold tabular-nums">
                 {percentFormatter.format(
                   result.prediction.confidence

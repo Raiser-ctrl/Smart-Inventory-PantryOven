@@ -29,6 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { notifyInventoryUpdated } from "@/lib/inventory-events";
+
 type TransactionType =
   | "stock_in"
   | "stock_out"
@@ -83,8 +85,8 @@ export default function StockTransactionDialog({
   const router = useRouter();
 
   const [open, setOpen] = useState(false);
-
   const [itemId, setItemId] = useState("");
+
   const [transactionType, setTransactionType] =
     useState<TransactionType>("stock_in");
 
@@ -139,9 +141,7 @@ export default function StockTransactionDialog({
     clearPendingRequest();
   }
 
-  function handleFieldChange(
-    update: () => void
-  ) {
+  function handleFieldChange(update: () => void) {
     if (submittingRef.current) return;
 
     // Changing any field creates a new logical request.
@@ -166,9 +166,7 @@ export default function StockTransactionDialog({
     }
   }
 
-  function validateForm():
-    | TransactionPayload
-    | null {
+  function validateForm(): TransactionPayload | null {
     if (!selectedItem) {
       setError("Silakan pilih barang yang valid.");
       return null;
@@ -195,12 +193,8 @@ export default function StockTransactionDialog({
       return null;
     }
 
-    if (
-      notes.trim().length > MAX_NOTES_LENGTH
-    ) {
-      setError(
-        "Catatan maksimal 500 karakter."
-      );
+    if (notes.trim().length > MAX_NOTES_LENGTH) {
+      setError("Catatan maksimal 500 karakter.");
       return null;
     }
 
@@ -236,9 +230,7 @@ export default function StockTransactionDialog({
     if (!payload) return;
 
     const serializedPayload = JSON.stringify(payload);
-
-    const previousRequest =
-      pendingRequestRef.current;
+    const previousRequest = pendingRequestRef.current;
 
     // An identical retry must reuse its UUID.
     const idempotencyKey =
@@ -295,9 +287,13 @@ export default function StockTransactionDialog({
       }
 
       // Server confirmed creation or idempotent replay.
+      // Notify AI components that inventory data changed.
+      notifyInventoryUpdated(payload.item_id);
+
       resetForm();
       setOpen(false);
 
+      // Refresh server-rendered inventory data.
       router.refresh();
     } catch (caughtError) {
       setError(

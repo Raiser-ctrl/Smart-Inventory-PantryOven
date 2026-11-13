@@ -19,6 +19,7 @@ import ReactMarkdown from "react-markdown";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { INVENTORY_UPDATED_EVENT } from "@/lib/inventory-events";
 
 type InventoryOption = {
   id: string;
@@ -107,8 +108,10 @@ export default function AiStockAssistant({
     leadTimeNumber >= 1 &&
     leadTimeNumber <= 365;
 
+  // Abort pending requests when component unmounts.
   useEffect(() => {
     return () => {
+      requestIdRef.current += 1;
       controllerRef.current?.abort();
     };
   }, []);
@@ -122,6 +125,31 @@ export default function AiStockAssistant({
     setError("");
     setResult(null);
   }
+
+  // Invalidate RAG results after a successful stock transaction.
+  useEffect(() => {
+    function handleInventoryUpdated() {
+      requestIdRef.current += 1;
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+
+      setLoading(false);
+      setError("");
+      setResult(null);
+    }
+
+    window.addEventListener(
+      INVENTORY_UPDATED_EVENT,
+      handleInventoryUpdated
+    );
+
+    return () => {
+      window.removeEventListener(
+        INVENTORY_UPDATED_EVENT,
+        handleInventoryUpdated
+      );
+    };
+  }, []);
 
   async function handleGenerate(
     event: FormEvent<HTMLFormElement>
@@ -464,7 +492,7 @@ export default function AiStockAssistant({
               <ReactMarkdown
                 skipHtml
                 components={{
-                  a: ({ children, ...props }) => (
+                  a: ({ children }) => (
                     <span>{children}</span>
                   ),
                 }}
