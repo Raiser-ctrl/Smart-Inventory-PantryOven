@@ -8,8 +8,8 @@ export default async function UserManagementPage() {
   const profile = await requireAdmin();
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-7xl px-3 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
+    <main className="mx-auto w-full min-w-0 max-w-7xl px-4 py-5 pb-28 text-[#343B32] sm:px-6 md:px-8 md:pt-8 lg:pb-8">
       <UserManagementTable currentUserId={profile.id} />
-    </div>
+    </main>
   );
 }

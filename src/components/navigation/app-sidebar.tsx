@@ -6,12 +6,10 @@ import { usePathname } from "next/navigation";
 
 import {
   ArrowLeftRight,
-  ChefHat,
   LayoutDashboard,
   Package,
-  PanelLeftClose,
-  PanelLeftOpen,
   UsersRound,
+  type LucideIcon,
 } from "lucide-react";
 
 type UserRole = "admin" | "staff";
@@ -19,7 +17,14 @@ type UserRole = "admin" | "staff";
 type NavigationItem = {
   title: string;
   href: string;
-  icon: typeof LayoutDashboard;
+  icon: LucideIcon;
+};
+
+type AppSidebarProps = {
+  collapsed: boolean;
+  onToggle: () => void;
+  onNavigate?: () => void;
+  role?: UserRole;
 };
 
 const navigationItems: NavigationItem[] = [
@@ -48,16 +53,18 @@ const adminNavigationItems: NavigationItem[] = [
   },
 ];
 
-type AppSidebarProps = {
-  collapsed: boolean;
-  onToggle: () => void;
-  onNavigate?: () => void;
-  role?: UserRole;
-};
+function isActivePath(
+  pathname: string,
+  href: string
+): boolean {
+  return (
+    pathname === href ||
+    pathname.startsWith(`${href}/`)
+  );
+}
 
 export function AppSidebar({
   collapsed,
-  onToggle,
   onNavigate,
   role = "staff",
 }: AppSidebarProps) {
@@ -69,142 +76,111 @@ export function AppSidebar({
       : navigationItems;
 
   return (
-    <aside
-      className={`flex h-full min-h-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ${
-        collapsed ? "w-16" : "w-64"
-      }`}
+    <div
+      className={[
+        "flex h-full min-h-0 w-[248px] flex-col",
+        "overflow-hidden text-[#343b32]",
+      ].join(" ")}
     >
-      {/* Branding */}
-      <div
-        className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${
-          collapsed
-            ? "justify-center px-2"
-            : "justify-between px-4"
-        }`}
-      >
-        <Link
-          href="/dashboard"
-          onClick={onNavigate}
-          className="flex min-w-0 items-center gap-3"
-          aria-label="PantryOven Dashboard"
-          title={collapsed ? "PantryOven" : undefined}
-        >
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <ChefHat
-              aria-hidden="true"
-              className="size-5"
-            />
-          </div>
-
-          {!collapsed && (
-            <span className="truncate text-lg font-semibold tracking-tight">
-              PantryOven
-            </span>
-          )}
-        </Link>
-
-        {!collapsed && (
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-label="Collapse sidebar"
-            title="Collapse sidebar"
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-          >
-            <PanelLeftClose
-              aria-hidden="true"
-              className="size-4"
-            />
-          </button>
-        )}
-      </div>
-
-      {/* Expand sidebar */}
-      {collapsed && (
-        <div className="flex shrink-0 justify-center pt-3">
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-label="Expand sidebar"
-            title="Expand sidebar"
-            className="flex size-9 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-          >
-            <PanelLeftOpen
-              aria-hidden="true"
-              className="size-4"
-            />
-          </button>
-        </div>
-      )}
-
-      {/* Main navigation */}
+      {/* Main navigation — no sidebar logo */}
       <nav
-        className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4"
         aria-label="Main navigation"
+        className={[
+          "min-h-0 flex-1 space-y-1.5",
+          "overflow-y-auto overflow-x-hidden",
+          "px-3 pt-4 pb-3",
+        ].join(" ")}
       >
         {items.map((item) => {
           const Icon = item.icon;
 
-          const isActive =
-            pathname === item.href ||
-            pathname.startsWith(`${item.href}/`);
+          const active = isActivePath(
+            pathname,
+            item.href
+          );
 
           return (
             <Link
               key={item.href}
               href={item.href}
               onClick={onNavigate}
-              aria-current={isActive ? "page" : undefined}
-              title={collapsed ? item.title : undefined}
-              className={`flex min-h-11 items-center gap-3 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring ${
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              } ${
-                collapsed
-                  ? "justify-center px-0"
-                  : "px-3"
-              }`}
+              aria-label={item.title}
+              aria-current={
+                active ? "page" : undefined
+              }
+              title={
+                collapsed ? item.title : undefined
+              }
+              className={[
+                "relative flex min-h-11 items-center",
+                "gap-3 rounded-2xl px-2.5",
+                "text-sm font-medium",
+                "transition-colors duration-200",
+                "motion-reduce:transition-none",
+                "focus-visible:outline-2",
+                "focus-visible:outline-offset-2",
+                "focus-visible:outline-[#536d50]",
+                active
+                  ? "bg-[#8fa58a]/20 text-[#343b32]"
+                  : [
+                      "text-[#536d50]",
+                      "hover:bg-[#8fa58a]/10",
+                      "hover:text-[#343b32]",
+                    ].join(" "),
+              ].join(" ")}
             >
               <Icon
                 aria-hidden="true"
-                className="size-5 shrink-0"
+                className={[
+                  "size-5 shrink-0",
+                  active
+                    ? "text-[#536d50]"
+                    : "text-[#8fa58a]",
+                ].join(" ")}
               />
 
-              {!collapsed && (
-                <span className="truncate">
-                  {item.title}
-                </span>
+              <span
+                className={[
+                  "min-w-0 flex-1 truncate",
+                  "whitespace-nowrap",
+                  "transition-[opacity,transform]",
+                  "duration-200 ease-out",
+                  "motion-reduce:transition-none",
+                  collapsed
+                    ? [
+                        "-translate-x-1.5 opacity-0",
+                        "group-hover/sidebar:translate-x-0",
+                        "group-hover/sidebar:opacity-100",
+                        "group-focus-within/sidebar:translate-x-0",
+                        "group-focus-within/sidebar:opacity-100",
+                      ].join(" ")
+                    : "translate-x-0 opacity-100",
+                ].join(" ")}
+              >
+                {item.title}
+              </span>
+
+              {active && (
+                <span
+                  aria-hidden="true"
+                  className={[
+                    "size-1.5 shrink-0 rounded-full",
+                    "bg-[#536d50]",
+                    "transition-opacity duration-200",
+                    collapsed
+                      ? [
+                          "opacity-0",
+                          "group-hover/sidebar:opacity-100",
+                          "group-focus-within/sidebar:opacity-100",
+                        ].join(" ")
+                      : "opacity-100",
+                  ].join(" ")}
+                />
               )}
             </Link>
           );
         })}
       </nav>
-
-      {/* Sidebar footer */}
-      <div
-        className={`shrink-0 border-t border-sidebar-border ${
-          collapsed ? "px-2 py-3" : "px-4 py-4"
-        }`}
-      >
-        {collapsed ? (
-          <div
-            className="mx-auto size-1.5 rounded-full bg-[#8a9c79]"
-            aria-hidden="true"
-          />
-        ) : (
-          <div className="flex items-center gap-2">
-            <span
-              className="size-1.5 shrink-0 rounded-full bg-[#8a9c79]"
-              aria-hidden="true"
-            />
-
-            <p className="truncate text-xs text-sidebar-foreground/50">
-              PantryOven Workspace
-            </p>
-          </div>
-        )}
-      </div>
-    </aside>
+    </div>
   );
 }

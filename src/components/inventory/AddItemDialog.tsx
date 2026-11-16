@@ -6,10 +6,18 @@ import {
   useState,
   type FormEvent,
 } from "react";
+
 import { useRouter } from "next/navigation";
-import { Loader2, Plus } from "lucide-react";
+
+import {
+  AlertCircle,
+  Loader2,
+  PackagePlus,
+  Plus,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+
 import {
   Dialog,
   DialogContent,
@@ -18,8 +26,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
 import {
   Select,
   SelectContent,
@@ -61,6 +71,28 @@ type PendingRequest = {
   payload: string;
 };
 
+const inputClassName = [
+  "h-11 rounded-xl",
+  "border-[#8FA58A]/20",
+  "bg-white/70",
+  "text-[#343B32]",
+  "placeholder:text-[#7A8775]/65",
+  "focus-visible:border-[#8FA58A]",
+  "focus-visible:ring-[#8FA58A]/25",
+].join(" ");
+
+const selectClassName = [
+  "h-11 w-full rounded-xl",
+  "border-[#8FA58A]/20",
+  "bg-white/70",
+  "text-[#343B32]",
+  "focus-visible:border-[#8FA58A]",
+  "focus-visible:ring-[#8FA58A]/25",
+].join(" ");
+
+const labelClassName =
+  "text-xs font-semibold text-[#536D50]";
+
 export function AddItemDialog() {
   const router = useRouter();
 
@@ -69,16 +101,21 @@ export function AddItemDialog() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [unit, setUnit] = useState("");
-  const [initialStock, setInitialStock] = useState("");
-  const [minimumStock, setMinimumStock] = useState("");
+
+  const [initialStock, setInitialStock] =
+    useState("");
+
+  const [minimumStock, setMinimumStock] =
+    useState("");
 
   const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
-  // Synchronous guard against double submission.
+  // Prevent duplicate submissions synchronously.
   const submittingRef = useRef(false);
 
-  // Keep the same key when retrying an uncertain request.
+  // Preserve the key for retries of uncertain requests.
   const pendingRequestRef =
     useRef<PendingRequest | null>(null);
 
@@ -93,6 +130,7 @@ export function AddItemDialog() {
     setInitialStock("");
     setMinimumStock("");
     setError("");
+
     clearPendingRequest();
   }
 
@@ -102,7 +140,7 @@ export function AddItemDialog() {
   ) {
     if (submittingRef.current) return;
 
-    // A changed form represents a new logical request.
+    // A changed form represents a new request.
     clearPendingRequest();
     setError("");
     setter(value);
@@ -114,8 +152,8 @@ export function AddItemDialog() {
     setOpen(nextOpen);
 
     if (!nextOpen) {
-      // Preserve the draft if the previous request
-      // may have reached the server.
+      // Preserve draft if a previous request may
+      // already have reached the server.
       if (pendingRequestRef.current) {
         return;
       }
@@ -204,10 +242,12 @@ export function AddItemDialog() {
 
     if (!payload) return;
 
-    const serializedPayload = JSON.stringify(payload);
+    const serializedPayload =
+      JSON.stringify(payload);
 
-    // Reuse the UUID only for an identical payload.
-    const previousRequest = pendingRequestRef.current;
+    // Reuse the same UUID for an identical retry.
+    const previousRequest =
+      pendingRequestRef.current;
 
     const idempotencyKey =
       previousRequest?.payload === serializedPayload
@@ -223,27 +263,35 @@ export function AddItemDialog() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("/api/v1/items", {
-        method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...payload,
-          idempotency_key: idempotencyKey,
-        }),
-      });
+      const response = await fetch(
+        "/api/v1/items",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...payload,
+            idempotency_key: idempotencyKey,
+          }),
+        }
+      );
 
       const result: ApiResponse | null =
         await response.json().catch(() => null);
 
-      if (!response.ok || result?.success !== true) {
-        // A validation or key conflict means this
-        // attempt should not be reused.
+      if (
+        !response.ok ||
+        result?.success !== true
+      ) {
+        // A definite validation/key conflict
+        // should not reuse the previous key.
         if (
-          [400, 409, 415, 422].includes(response.status)
+          [400, 409, 415, 422].includes(
+            response.status
+          )
         ) {
           clearPendingRequest();
         }
@@ -254,11 +302,9 @@ export function AddItemDialog() {
         );
       }
 
-      // The server confirmed creation or replay.
       resetForm();
       setOpen(false);
 
-      // Refresh inventory Server Components.
       router.refresh();
     } catch (caughtError) {
       setError(
@@ -277,32 +323,78 @@ export function AddItemDialog() {
       open={open}
       onOpenChange={handleOpenChange}
     >
+      {/* Trigger */}
       <DialogTrigger asChild>
-        <Button type="button">
-          <Plus className="mr-2 h-4 w-4" />
+        <Button
+          type="button"
+          className={[
+            "h-10 rounded-xl px-4",
+            "bg-[#536D50] text-white",
+            "shadow-[0_4px_12px_rgba(83,109,80,0.12)]",
+            "transition-colors",
+            "hover:bg-[#435A40]",
+            "focus-visible:ring-[#8FA58A]/40",
+          ].join(" ")}
+        >
+          <Plus
+            aria-hidden="true"
+            className="mr-1.5 size-4"
+          />
+
           Add Item
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            Add New Item
-          </DialogTitle>
+      {/* Dialog */}
+      <DialogContent
+        className={[
+          "w-[calc(100%-2rem)]",
+          "max-h-[min(90dvh,760px)]",
+          "overflow-y-auto",
+          "rounded-[26px]",
+          "border border-white/60",
+          "bg-[#FAF7F0]/95",
+          "p-0",
+          "shadow-[0_24px_70px_rgba(52,59,50,0.16)]",
+          "backdrop-blur-2xl",
+          "sm:max-w-[460px]",
+        ].join(" ")}
+      >
+        {/* Header */}
+        <DialogHeader className="border-b border-[#8FA58A]/12 px-5 pb-4 pt-6 text-left sm:px-6">
+          <div className="flex items-start gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#8FA58A]/15 text-[#536D50]">
+              <PackagePlus
+                aria-hidden="true"
+                className="size-5"
+              />
+            </span>
 
-          <DialogDescription>
-            Enter the details of your bakery inventory item.
-          </DialogDescription>
+            <div className="min-w-0">
+              <DialogTitle className="text-lg font-semibold tracking-tight text-[#343B32]">
+                Add new item
+              </DialogTitle>
+
+              <DialogDescription className="mt-1 text-xs leading-relaxed text-[#7A8775]">
+                Add an ingredient or product to your
+                bakery inventory.
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
+        {/* Form */}
         <form
           onSubmit={handleSubmit}
-          className="space-y-4"
+          className="space-y-5 px-5 py-5 sm:px-6"
         >
-          {/* Item Name */}
+          {/* Item name */}
           <div className="space-y-2">
-            <Label htmlFor="item-name">
-              Item Name
+            <Label
+              htmlFor="item-name"
+              className={labelClassName}
+            >
+              Item name
             </Label>
 
             <Input
@@ -318,161 +410,223 @@ export function AddItemDialog() {
               disabled={isSubmitting}
               maxLength={MAX_NAME_LENGTH}
               required
+              className={inputClassName}
             />
           </div>
 
-          {/* Category */}
-          <div className="space-y-2">
-            <Label htmlFor="item-category">
-              Category
-            </Label>
-
-            <Select
-              value={category}
-              onValueChange={(value) =>
-                handleFieldChange(
-                  setCategory,
-                  value
-                )
-              }
-              disabled={isSubmitting}
-            >
-              <SelectTrigger
-                id="item-category"
-                className="w-full"
+          {/* Category & unit */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="min-w-0 space-y-2">
+              <Label
+                htmlFor="item-category"
+                className={labelClassName}
               >
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-
-              <SelectContent>
-                <SelectItem value="raw_material">
-                  Raw Material
-                </SelectItem>
-
-                <SelectItem value="finished_product">
-                  Finished Product
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Unit */}
-          <div className="space-y-2">
-            <Label htmlFor="item-unit">
-              Unit
-            </Label>
-
-            <Select
-              value={unit}
-              onValueChange={(value) =>
-                handleFieldChange(
-                  setUnit,
-                  value
-                )
-              }
-              disabled={isSubmitting}
-            >
-              <SelectTrigger
-                id="item-unit"
-                className="w-full"
-              >
-                <SelectValue placeholder="Select unit" />
-              </SelectTrigger>
-
-              <SelectContent>
-                <SelectItem value="kg">
-                  Kilogram (kg)
-                </SelectItem>
-
-                <SelectItem value="pcs">
-                  Pieces (pcs)
-                </SelectItem>
-
-                <SelectItem value="liter">
-                  Liter
-                </SelectItem>
-
-                <SelectItem value="gram">
-                  Gram
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Stock Fields */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="initial-stock">
-                Initial Stock
+                Category
               </Label>
 
-              <Input
-                id="initial-stock"
-                type="number"
-                min="0"
-                max={MAX_STOCK}
-                step="any"
-                value={initialStock}
-                onChange={(event) =>
+              <Select
+                value={category}
+                onValueChange={(value) =>
                   handleFieldChange(
-                    setInitialStock,
-                    event.target.value
+                    setCategory,
+                    value
                   )
                 }
                 disabled={isSubmitting}
-                required
-              />
+              >
+                <SelectTrigger
+                  id="item-category"
+                  className={selectClassName}
+                >
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+
+                <SelectContent>
+                  <SelectItem value="raw_material">
+                    Raw material
+                  </SelectItem>
+
+                  <SelectItem value="finished_product">
+                    Finished product
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="minimum-stock">
-                Minimum Stock
+            <div className="min-w-0 space-y-2">
+              <Label
+                htmlFor="item-unit"
+                className={labelClassName}
+              >
+                Unit
               </Label>
 
-              <Input
-                id="minimum-stock"
-                type="number"
-                min="0"
-                max={MAX_STOCK}
-                step="any"
-                value={minimumStock}
-                onChange={(event) =>
+              <Select
+                value={unit}
+                onValueChange={(value) =>
                   handleFieldChange(
-                    setMinimumStock,
-                    event.target.value
+                    setUnit,
+                    value
                   )
                 }
                 disabled={isSubmitting}
-                required
-              />
+              >
+                <SelectTrigger
+                  id="item-unit"
+                  className={selectClassName}
+                >
+                  <SelectValue placeholder="Select unit" />
+                </SelectTrigger>
+
+                <SelectContent>
+                  <SelectItem value="kg">
+                    Kilogram (kg)
+                  </SelectItem>
+
+                  <SelectItem value="pcs">
+                    Pieces (pcs)
+                  </SelectItem>
+
+                  <SelectItem value="liter">
+                    Liter
+                  </SelectItem>
+
+                  <SelectItem value="gram">
+                    Gram
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
-          {/* Error Message */}
-          {error && (
-            <p
-              role="alert"
-              className="text-sm text-destructive"
-            >
-              {error}
+          {/* Stock values */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-[#536D50]">
+                Stock settings
+              </p>
+
+              <span className="text-[11px] text-[#7A8775]">
+                In selected unit
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="min-w-0 space-y-2">
+                <Label
+                  htmlFor="initial-stock"
+                  className={labelClassName}
+                >
+                  Initial stock
+                </Label>
+
+                <Input
+                  id="initial-stock"
+                  type="number"
+                  min="0"
+                  max={MAX_STOCK}
+                  step="any"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={initialStock}
+                  onChange={(event) =>
+                    handleFieldChange(
+                      setInitialStock,
+                      event.target.value
+                    )
+                  }
+                  disabled={isSubmitting}
+                  required
+                  className={inputClassName}
+                />
+              </div>
+
+              <div className="min-w-0 space-y-2">
+                <Label
+                  htmlFor="minimum-stock"
+                  className={labelClassName}
+                >
+                  Minimum stock
+                </Label>
+
+                <Input
+                  id="minimum-stock"
+                  type="number"
+                  min="0"
+                  max={MAX_STOCK}
+                  step="any"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={minimumStock}
+                  onChange={(event) =>
+                    handleFieldChange(
+                      setMinimumStock,
+                      event.target.value
+                    )
+                  }
+                  disabled={isSubmitting}
+                  required
+                  className={inputClassName}
+                />
+              </div>
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-[#7A8775]">
+              Minimum stock determines when an item
+              needs restocking.
             </p>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-[#C9857C]/20 bg-[#C9857C]/10 p-3"
+            >
+              <AlertCircle
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-[#B76F67]"
+              />
+
+              <p className="text-xs leading-relaxed text-[#A65C55]">
+                {error}
+              </p>
+            </div>
           )}
 
-          {/* Submit Button */}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving Item...
-              </>
-            ) : (
-              "Save Item"
-            )}
-          </Button>
+          {/* Submit */}
+          <div className="flex items-center justify-end border-t border-[#8FA58A]/12 pt-4">
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className={[
+                "h-11 w-full rounded-xl",
+                "bg-[#536D50] text-white",
+                "font-semibold",
+                "transition-colors",
+                "hover:bg-[#435A40]",
+                "disabled:opacity-60",
+              ].join(" ")}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2
+                    aria-hidden="true"
+                    className="mr-2 size-4 animate-spin"
+                  />
+                  Saving item...
+                </>
+              ) : (
+                <>
+                  <Plus
+                    aria-hidden="true"
+                    className="mr-2 size-4"
+                  />
+                  Save item
+                </>
+              )}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -17,9 +16,7 @@ import {
   Package,
 } from "lucide-react";
 
-import type { ItemActivity } from "@/lib/inventory-analytics";
-
-type Tab = "attention" | "inventory" | "usage" | "waste";
+type Tab = "attention" | "inventory";
 
 type InventoryItem = {
   id: string;
@@ -31,9 +28,6 @@ type InventoryItem = {
 
 type Props = {
   items: InventoryItem[];
-  topUsedMaterials: ItemActivity[];
-  wasteMonitoring: ItemActivity[];
-  period: 7 | 30;
 };
 
 const formatter = new Intl.NumberFormat("id-ID", {
@@ -43,8 +37,6 @@ const formatter = new Intl.NumberFormat("id-ID", {
 const tabs: { value: Tab; label: string }[] = [
   { value: "attention", label: "Attention" },
   { value: "inventory", label: "Inventory" },
-  { value: "usage", label: "Usage" },
-  { value: "waste", label: "Waste" },
 ];
 
 const SWIPE_THRESHOLD = 65;
@@ -54,10 +46,8 @@ function isLowStock(item: InventoryItem) {
   return item.current_stock <= item.minimum_stock;
 }
 
-export default function InventoryOverview({
+export default function DashboardInventoryOverview({
   items,
-  topUsedMaterials,
-  wasteMonitoring,
 }: Props) {
   const [activeTab, setActiveTab] =
     useState<Tab>("attention");
@@ -76,14 +66,6 @@ export default function InventoryOverview({
 
   const safeItems = Array.isArray(items) ? items : [];
 
-  const safeUsage = Array.isArray(topUsedMaterials)
-    ? topUsedMaterials
-    : [];
-
-  const safeWaste = Array.isArray(wasteMonitoring)
-    ? wasteMonitoring
-    : [];
-
   const lowStockItems = safeItems
     .filter(isLowStock)
     .sort(
@@ -93,30 +75,11 @@ export default function InventoryOverview({
         (b.current_stock - b.minimum_stock)
     );
 
-  const visibleItems =
-    activeTab === "attention"
-      ? lowStockItems.slice(0, 5)
-      : activeTab === "inventory"
-        ? [...safeItems]
-            .sort((a, b) => {
-              const aLow = isLowStock(a) ? 0 : 1;
-              const bLow = isLowStock(b) ? 0 : 1;
-
-              return aLow - bLow;
-            })
-            .slice(0, 5)
-        : [];
-
-  const activityItems =
-    activeTab === "usage"
-      ? safeUsage.slice(0, 5)
-      : activeTab === "waste"
-        ? safeWaste.slice(0, 5)
-        : [];
-
-  const isActivityTab =
-    activeTab === "usage" ||
-    activeTab === "waste";
+  const visibleItems = activeTab === "attention"
+    ? lowStockItems.slice(0, 5)
+    : [...safeItems]
+        .sort((a, b) => Number(isLowStock(b)) - Number(isLowStock(a)))
+        .slice(0, 5);
 
   const changeTab = (nextTab: Tab, focus = false) => {
     setActiveTab(nextTab);
@@ -236,29 +199,29 @@ export default function InventoryOverview({
   return (
     <section
       aria-labelledby={headingId}
-      className="min-w-0 overflow-hidden rounded-xl border bg-card"
+      className="min-w-0 overflow-hidden rounded-[26px] border border-white/55 bg-white/45 text-[#343B32] shadow-[0_10px_36px_rgba(52,59,50,0.045)] backdrop-blur-xl"
     >
       {/* Header */}
       <div className="flex items-center gap-2.5 px-3.5 pt-4 sm:px-5 sm:pt-5">
         <Package
           aria-hidden="true"
-          className="size-4 shrink-0 text-muted-foreground"
+          className="size-4 shrink-0 text-[#5F705B]"
         />
 
         <h2
           id={headingId}
           className="text-sm font-semibold sm:text-base"
         >
-          Inventory overview
+          Inventory Overview
         </h2>
       </div>
 
       {/* Tabs */}
-      <div className="mt-3 border-b px-3 sm:px-5">
+      <div className="mt-3 px-3.5 sm:px-5">
         <div
           role="tablist"
           aria-label="Inventory overview sections"
-          className="flex gap-1 overflow-x-auto pb-2"
+          className="inline-flex max-w-full gap-1 rounded-2xl border border-[#8FA58A]/15 bg-[#F8F6EF]/75 p-1"
         >
           {tabs.map((tab) => {
             const active = activeTab === tab.value;
@@ -281,10 +244,10 @@ export default function InventoryOverview({
                 onKeyDown={(event) =>
                   handleTabKeyDown(event, tab.value)
                 }
-                className={`min-h-11 shrink-0 rounded-md px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm ${
+                className={`min-h-11 shrink-0 rounded-xl px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8FA58A]/55 sm:text-sm ${
                   active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? "bg-white text-[#343B32] shadow-sm"
+                    : "text-[#536D50] hover:bg-white/65 hover:text-[#343B32]"
                 }`}
               >
                 {tab.label}
@@ -305,7 +268,7 @@ export default function InventoryOverview({
         onTouchCancel={() => {
           touchStart.current = null;
         }}
-        className="min-h-[120px] px-3.5 py-1 outline-none [touch-action:pan-y] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
+        className="min-h-[120px] px-3.5 py-3 outline-none [touch-action:pan-y] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8FA58A]/55 sm:px-5"
       >
         {(activeTab === "attention" ||
           activeTab === "inventory") && (
@@ -326,7 +289,7 @@ export default function InventoryOverview({
                         : "No inventory items found"}
                   </p>
 
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p className="mt-1 text-xs text-[#5F705B]">
                     {safeItems.length === 0
                       ? "Add items to start tracking inventory."
                       : activeTab === "attention"
@@ -336,16 +299,16 @@ export default function InventoryOverview({
                 </div>
               </div>
             ) : (
-              <ul className="divide-y">
+              <ul className="space-y-2">
                 {visibleItems.map((item) => {
                   const low = isLowStock(item);
 
                   return (
                     <li
                       key={item.id}
-                      className="flex min-w-0 items-center justify-between gap-3 py-3"
+                      className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-[#8FA58A]/15 bg-white/60 px-3 py-2.5"
                     >
-                      <div className="flex min-w-0 items-start gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         {low ? (
                           <AlertTriangle
                             aria-hidden="true"
@@ -360,13 +323,13 @@ export default function InventoryOverview({
 
                         <div className="min-w-0">
                           <p
-                            className="truncate text-sm font-medium"
+                            className="break-words text-sm font-medium [overflow-wrap:anywhere]"
                             title={item.name}
                           >
                             {item.name}
                           </p>
 
-                          <p className="mt-0.5 text-xs text-muted-foreground">
+                          <p className="mt-0.5 text-xs text-[#5F705B]">
                             Min{" "}
                             {formatter.format(
                               item.minimum_stock
@@ -389,7 +352,7 @@ export default function InventoryOverview({
                             className={`mt-0.5 text-[11px] ${
                               low
                                 ? "text-amber-600"
-                                : "text-muted-foreground"
+                                : "text-[#5F705B]"
                             }`}
                           >
                             {low ? "Low stock" : "Healthy"}
@@ -404,67 +367,17 @@ export default function InventoryOverview({
           </>
         )}
 
-        {isActivityTab && (
-          <>
-            {activityItems.length === 0 ? (
-              <p className="py-6 text-sm text-muted-foreground">
-                {activeTab === "usage"
-                  ? "No material usage recorded in this period."
-                  : "No waste recorded in this period."}
-              </p>
-            ) : (
-              <ol className="divide-y">
-                {activityItems.map((item, index) => (
-                  <li
-                    key={item.item_id}
-                    className="flex min-w-0 items-center justify-between gap-3 py-3"
-                  >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {index + 1}
-                      </span>
-
-                      <div className="min-w-0">
-                        <p
-                          className="truncate text-sm font-medium"
-                          title={item.name}
-                        >
-                          {item.name}
-                        </p>
-
-                        <p className="text-xs text-muted-foreground">
-                          {item.transactionCount} transactions
-                        </p>
-                      </div>
-                    </div>
-
-                    <span className="max-w-[45%] shrink-0 break-words text-right text-sm font-semibold tabular-nums">
-                      {formatter.format(
-                        item.quantity
-                      )}{" "}
-                      {item.unit}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </>
-        )}
       </div>
 
       {/* Footer navigation */}
-      <div className="border-t px-3.5 py-3 sm:px-5">
+      <div className="border-t border-[#8FA58A]/15 px-3.5 py-2 sm:px-5">
         <Link
-          href={
-            isActivityTab
-              ? "/transactions"
-              : "/inventory"
-          }
-          className="inline-flex min-h-11 items-center gap-1.5 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          href={activeTab === "attention" && lowStockItems.length > 0
+            ? "/inventory?stock=low"
+            : "/inventory?status=active"}
+          className="inline-flex min-h-11 items-center gap-1.5 text-xs font-semibold text-[#536D50] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8FA58A]/55"
         >
-          {isActivityTab
-            ? "View transactions"
-            : "View inventory"}
+          View inventory
 
           <ArrowUpRight
             aria-hidden="true"

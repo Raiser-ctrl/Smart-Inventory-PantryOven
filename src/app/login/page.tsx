@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -285,8 +284,9 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      title="Welcome back!"
-      description="Senang melihatmu lagi. Yuk, kelola inventory bakery dengan lebih mudah."
+      illustration="login"
+      title="Masuk ke PantryOven"
+      description="Masuk untuk mengelola stok dan transaksi bakery kamu."
     >
       <form
         noValidate
@@ -299,7 +299,7 @@ export default function LoginPage() {
         <div className="space-y-2">
           <Label
             htmlFor="email"
-            className="text-[#594c40]"
+            className="text-[#343B32]"
           >
             Email
           </Label>
@@ -307,7 +307,7 @@ export default function LoginPage() {
           <div className="relative">
             <Mail
               aria-hidden="true"
-              className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+              className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
             />
 
             <Input
@@ -334,7 +334,7 @@ export default function LoginPage() {
                   ? "login-email-error"
                   : undefined
               }
-              className="po-input pl-11"
+              className="po-input min-h-11 pl-11"
             />
           </div>
 
@@ -353,7 +353,7 @@ export default function LoginPage() {
         <div className="space-y-2">
           <Label
             htmlFor="password"
-            className="text-[#594c40]"
+            className="text-[#343B32]"
           >
             Password
           </Label>
@@ -361,7 +361,7 @@ export default function LoginPage() {
           <div className="relative">
             <LockKeyhole
               aria-hidden="true"
-              className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+              className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
             />
 
             <Input
@@ -392,7 +392,7 @@ export default function LoginPage() {
                   ? "login-password-error"
                   : undefined
               }
-              className="po-input pl-11 pr-12"
+              className="po-input min-h-11 pl-11 pr-12"
             />
 
             <button
@@ -409,7 +409,7 @@ export default function LoginPage() {
                   : "Tampilkan password"
               }
               aria-pressed={showPassword}
-              className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-2xl text-[#938574] transition-colors hover:text-[#463a30] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#778766] disabled:cursor-not-allowed disabled:opacity-50"
+              className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-2xl text-[#5F705B] transition-colors hover:text-[#343B32] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#536D50] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {showPassword ? (
                 <EyeOff
@@ -440,7 +440,7 @@ export default function LoginPage() {
         <div className="flex justify-end">
           <Link
             href="/forgot-password"
-            className="rounded-sm text-sm font-semibold text-[#617451] underline-offset-4 transition-colors hover:text-[#46583b] hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#778766]"
+            className="rounded-sm text-sm font-semibold text-[#536D50] underline-offset-4 transition-colors hover:text-[#46583b] hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#536D50]"
           >
             Lupa password?
           </Link>
@@ -461,7 +461,7 @@ export default function LoginPage() {
         <Button
           type="submit"
           disabled={loading}
-          className="po-button mt-2 w-full font-semibold"
+          className="po-button min-h-11 mt-2 w-full font-semibold"
         >
           {loading ? (
             <>
@@ -483,11 +483,11 @@ export default function LoginPage() {
         </Button>
 
         {/* Registration */}
-        <div className="pt-3 text-center text-sm text-[#8a7b6b]">
+        <div className="pt-3 text-center text-sm text-[#5F705B]">
           Belum punya akun?{" "}
           <Link
             href="/register"
-            className="font-bold text-[#617451] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#778766]"
+            className="font-bold text-[#536D50] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#536D50]"
           >
             Daftar sekarang
           </Link>

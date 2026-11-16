@@ -6,18 +6,18 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
 } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import {
   AlertTriangle,
   Archive,
   Check,
+  CheckCircle2,
   CheckSquare2,
-  History,
   Loader2,
   Package,
   Pencil,
@@ -32,11 +32,9 @@ import {
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
 import { EditItemDialog } from "@/components/inventory/EditItemDialog";
 import StockTransactionDialog from "@/components/inventory/StockTransactionDialog";
-import AiStockPrediction from "@/components/inventory/AiStockPrediction";
-import AiStockAssistant from "@/components/inventory/AiStockAssistant";
+
 import { useSwipeTabs } from "@/hooks/useSwipeTabs";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -108,6 +106,12 @@ const formatter = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 2,
 });
 
+const glassCard =
+  "min-w-0 overflow-hidden rounded-[26px] border border-white/55 bg-white/45 shadow-[0_10px_36px_rgba(52,59,50,0.045)] backdrop-blur-xl";
+
+const softButton =
+  "rounded-xl border-[#8FA58A]/20 bg-white/60 text-[#536D50] hover:bg-white/90 hover:text-[#343B32]";
+
 function isArchived(item: InventoryItem) {
   return item.archived_at !== null;
 }
@@ -133,21 +137,28 @@ function StockStatus({
   item: InventoryItem;
 }) {
   if (isArchived(item)) {
-    return <Badge variant="outline">Archived</Badge>;
+    return (
+      <span className="inline-flex rounded-full bg-[#7A8775]/10 px-2.5 py-1 text-[11px] font-medium text-[#7A8775]">
+        Archived
+      </span>
+    );
   }
 
   if (isLowStock(item)) {
     return (
-      <Badge
-        variant="outline"
-        className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-      >
+      <span className="inline-flex items-center gap-1 rounded-full bg-[#D4AC72]/15 px-2.5 py-1 text-[11px] font-medium text-[#A77D3D]">
+        <span className="size-1.5 rounded-full bg-[#D4AC72]" />
         Restock
-      </Badge>
+      </span>
     );
   }
 
-  return <Badge variant="secondary">Healthy</Badge>;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[#8FA58A]/15 px-2.5 py-1 text-[11px] font-medium text-[#536D50]">
+      <span className="size-1.5 rounded-full bg-[#8FA58A]" />
+      Healthy
+    </span>
+  );
 }
 
 function actionLabel(action: BulkAction) {
@@ -202,10 +213,8 @@ export default function InventoryWorkspace({
   const [actionResult, setActionResult] =
     useState<ActionResult | null>(null);
 
-  // Synchronous protection against duplicate requests.
   const processingRef = useRef(false);
 
-  // Long-press gesture state.
   const holdTimer = useRef<
     ReturnType<typeof setTimeout> | null
   >(null);
@@ -214,7 +223,7 @@ export default function InventoryWorkspace({
   const longPressTriggered = useRef(false);
   const suppressNextClick = useRef(false);
 
-  // Synchronize tabs with browser Back/Forward.
+  // Browser navigation synchronization
   useEffect(() => {
     function handlePopState() {
       if (processingRef.current) return;
@@ -249,7 +258,6 @@ export default function InventoryWorkspace({
     };
   }, []);
 
-  // Cleanup long-press timer on unmount.
   useEffect(() => {
     const timerRef = holdTimer;
 
@@ -261,7 +269,7 @@ export default function InventoryWorkspace({
     };
   }, []);
 
-  // Inventory calculations.
+  // Inventory data
   const activeItems = useMemo(
     () => items.filter((item) => !isArchived(item)),
     [items]
@@ -557,6 +565,7 @@ export default function InventoryWorkspace({
     resetSelectionForFilter();
   }
 
+  // Long press selection
   function cancelHold() {
     if (holdTimer.current !== null) {
       clearTimeout(holdTimer.current);
@@ -645,6 +654,7 @@ export default function InventoryWorkspace({
     }
   }
 
+  // Bulk operations
   function openAction(action: BulkAction) {
     if (
       processingRef.current ||
@@ -662,7 +672,6 @@ export default function InventoryWorkspace({
       return;
     }
 
-    // Freeze targets when confirmation opens.
     setPendingTargets([...selectedItems]);
     setPendingAction(action);
     setActionResult(null);
@@ -741,7 +750,6 @@ export default function InventoryWorkspace({
         setProgress(completed);
       }
     } catch (caughtError) {
-      // Mark any unprocessed items as failures.
       const remaining = targets.slice(completed);
 
       for (const item of remaining) {
@@ -767,7 +775,6 @@ export default function InventoryWorkspace({
         failures,
       });
 
-      // Keep failed items selected.
       setSelectedIds(
         failures.map((failure) => failure.id)
       );
@@ -788,6 +795,7 @@ export default function InventoryWorkspace({
             onClick={() =>
               setEditItem(selectedItems[0])
             }
+            className={softButton}
           >
             <Pencil className="mr-1.5 size-4" />
             Edit
@@ -801,6 +809,7 @@ export default function InventoryWorkspace({
             size="sm"
             disabled={interactionLocked}
             onClick={() => openAction("archive")}
+            className={softButton}
           >
             <Archive className="mr-1.5 size-4" />
             Archive
@@ -814,6 +823,7 @@ export default function InventoryWorkspace({
             size="sm"
             disabled={interactionLocked}
             onClick={() => openAction("restore")}
+            className={softButton}
           >
             <RotateCcw className="mr-1.5 size-4" />
             Restore
@@ -826,7 +836,7 @@ export default function InventoryWorkspace({
             variant="outline"
             size="sm"
             disabled={interactionLocked}
-            className="text-destructive hover:text-destructive"
+            className="rounded-xl border-[#C9857C]/25 bg-[#C9857C]/10 text-[#B76F67] hover:bg-[#C9857C]/15 hover:text-[#A65C55]"
             onClick={() => openAction("delete")}
           >
             <Trash2 className="mr-1.5 size-4" />
@@ -838,20 +848,17 @@ export default function InventoryWorkspace({
   }
 
   return (
-    <div className="min-w-0 space-y-4 pb-20 lg:space-y-6 lg:pb-0">
+    <div className="min-w-0 space-y-4 pb-28 lg:space-y-5 lg:pb-6">
       {/* Header */}
-      <header className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-[#343B32] sm:text-3xl">
             Inventory
           </h1>
 
-          {lowStockCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="size-3.5" />
-              {lowStockCount} need attention
-            </span>
-          )}
+          <p className="mt-1 text-sm text-[#7A8775]">
+            Manage your bakery stock.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -860,51 +867,20 @@ export default function InventoryWorkspace({
           />
 
           <AddItemDialog />
-
-          <Button
-            variant="outline"
-            size="sm"
-            asChild
-            className="ml-auto"
-          >
-            <Link href="/transactions">
-              <History className="mr-1.5 size-4" />
-              History
-            </Link>
-          </Button>
         </div>
       </header>
-
-      {/* AI Stock Prediction */}
-      <AiStockPrediction
-        items={activeItems.map((item) => ({
-          id: item.id,
-          name: item.name,
-          unit: item.unit,
-        }))}
-      />
-
-
-      {/* AI Stock Assistant (RAG + Gemini) */}
-      <AiStockAssistant
-        items={activeItems.map((item) => ({
-          id: item.id,
-          name: item.name,
-          unit: item.unit,
-        }))}
-      />
 
       {/* Inventory container */}
       <section
         aria-label="Inventory items"
-        className="min-w-0 overflow-hidden rounded-xl border bg-card"
+        className={glassCard}
       >
         <div className="space-y-3 p-3 sm:p-5">
           {/* Status tabs */}
           <div
             role="group"
             aria-label="Inventory status"
-            className="flex gap-1 overflow-x-auto rounded-lg bg-muted/50 p-1"
+            className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#8FA58A]/10 bg-[#F8F6EF]/70 p-1"
           >
             {statusTabs.map((tab) => (
               <button
@@ -915,25 +891,28 @@ export default function InventoryWorkspace({
                 onClick={() =>
                   changeStatus(tab.value)
                 }
-                className={`min-h-9 shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 sm:px-3 sm:text-sm ${
+                className={`min-h-10 shrink-0 rounded-xl px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:text-sm ${
                   status === tab.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "bg-white/90 text-[#343B32] shadow-sm"
+                    : "text-[#7A8775] hover:bg-white/50 hover:text-[#536D50]"
                 }`}
               >
                 {tab.label}
 
-                <span className="ml-1.5 text-muted-foreground tabular-nums">
+                <span className="ml-1.5 text-[11px] tabular-nums opacity-65">
                   {tab.count}
                 </span>
               </button>
             ))}
           </div>
 
-          {/* Search and selection */}
+          {/* Search toolbar */}
           <div className="flex min-w-0 items-center gap-2">
             <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#7A8775]"
+              />
 
               <Input
                 value={search}
@@ -946,7 +925,7 @@ export default function InventoryWorkspace({
                 disabled={interactionLocked}
                 placeholder="Search items..."
                 aria-label="Search inventory items"
-                className="pl-9"
+                className="h-10 rounded-xl border-[#8FA58A]/15 bg-white/65 pl-9 text-[#343B32] placeholder:text-[#7A8775]/70 focus-visible:ring-[#8FA58A]/40"
               />
             </div>
 
@@ -959,16 +938,20 @@ export default function InventoryWorkspace({
               onClick={() =>
                 setFiltersOpen((value) => !value)
               }
-              className="shrink-0 md:hidden"
+              className={`h-10 shrink-0 rounded-xl border-[#8FA58A]/20 px-3 ${
+                filtersOpen
+                  ? "bg-[#8FA58A]/15 text-[#536D50]"
+                  : "bg-white/60 text-[#536D50]"
+              }`}
             >
               <SlidersHorizontal className="size-4" />
 
-              <span className="hidden min-[380px]:inline">
+              <span className="hidden sm:inline">
                 Filters
               </span>
 
               {activeFilterCount > 0 && (
-                <span className="rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
+                <span className="rounded-full bg-[#536D50] px-1.5 text-[10px] text-white">
                   {activeFilterCount}
                 </span>
               )}
@@ -977,9 +960,7 @@ export default function InventoryWorkspace({
             <Button
               type="button"
               variant={
-                selectionMode
-                  ? "secondary"
-                  : "outline"
+                selectionMode ? "secondary" : "outline"
               }
               size="sm"
               disabled={interactionLocked}
@@ -988,30 +969,34 @@ export default function InventoryWorkspace({
                   ? exitSelection()
                   : enterSelection()
               }
-              className="shrink-0"
+              className="h-10 shrink-0 rounded-xl border-[#8FA58A]/20 bg-white/60 px-3 text-[#536D50]"
             >
               {selectionMode ? (
                 <>
                   <X className="size-4 sm:mr-1.5" />
-                  <span>Cancel</span>
+                  <span className="hidden sm:inline">
+                    Cancel
+                  </span>
                 </>
               ) : (
                 <>
                   <CheckSquare2 className="size-4 sm:mr-1.5" />
-                  <span>Select</span>
+                  <span className="hidden sm:inline">
+                    Select
+                  </span>
                 </>
               )}
             </Button>
           </div>
 
-          {/* Filters */}
+          {/* Collapsible filters */}
           <div
             id="inventory-extra-filters"
-            className={`grid gap-2 ${
+            className={
               filtersOpen
-                ? "grid-cols-1 sm:grid-cols-2"
+                ? "grid grid-cols-1 gap-2 rounded-2xl bg-[#F8F6EF]/60 p-3 sm:grid-cols-2"
                 : "hidden"
-            } md:grid md:grid-cols-2`}
+            }
           >
             <select
               value={category}
@@ -1026,7 +1011,7 @@ export default function InventoryWorkspace({
               }}
               disabled={interactionLocked}
               aria-label="Filter by category"
-              className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-10 w-full min-w-0 rounded-xl border border-[#8FA58A]/20 bg-white/75 px-3 text-sm text-[#343B32] outline-none focus-visible:ring-2 focus-visible:ring-[#8FA58A]/40 disabled:opacity-50"
             >
               <option value="all">
                 All categories
@@ -1055,7 +1040,7 @@ export default function InventoryWorkspace({
                 interactionLocked
               }
               aria-label="Filter by stock health"
-              className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-10 w-full min-w-0 rounded-xl border border-[#8FA58A]/20 bg-white/75 px-3 text-sm text-[#343B32] outline-none focus-visible:ring-2 focus-visible:ring-[#8FA58A]/40 disabled:opacity-50"
             >
               <option value="all">
                 All stock levels
@@ -1069,64 +1054,63 @@ export default function InventoryWorkspace({
             </select>
           </div>
 
-          {/* Selection controls */}
-          {selectionMode && (
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={toggleSelectAll}
-                disabled={
-                  filteredItems.length === 0 ||
-                  interactionLocked
-                }
-                className="inline-flex min-h-8 items-center gap-2 text-xs font-medium disabled:opacity-50"
-              >
-                <span
-                  className={`flex size-4 items-center justify-center rounded border ${
-                    allSelected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-input"
-                  }`}
+          {/* Compact contextual information */}
+          {(selectionMode || hasExtraFilters) && (
+            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
+              {selectionMode ? (
+                <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  disabled={
+                    filteredItems.length === 0 ||
+                    interactionLocked
+                  }
+                  className="inline-flex items-center gap-2 text-xs font-medium text-[#536D50] disabled:opacity-50"
                 >
-                  {allSelected && (
-                    <Check className="size-3" />
-                  )}
+                  <span
+                    className={`flex size-4 items-center justify-center rounded border ${
+                      allSelected
+                        ? "border-[#536D50] bg-[#536D50] text-white"
+                        : "border-[#8FA58A]/35"
+                    }`}
+                  >
+                    {allSelected && (
+                      <Check className="size-3" />
+                    )}
+                  </span>
+
+                  {allSelected
+                    ? "Deselect all"
+                    : "Select all"}
+                </button>
+              ) : (
+                <span className="text-xs tabular-nums text-[#7A8775]">
+                  {filteredItems.length} results
                 </span>
+              )}
 
-                {allSelected
-                  ? "Deselect all"
-                  : "Select all"}
-              </button>
-
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {selectedCount} selected
-              </span>
-            </div>
-          )}
-
-          {/* Filter results */}
-          {hasExtraFilters && !selectionMode && (
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {filteredItems.length} results
-              </span>
-
-              <button
-                type="button"
-                onClick={clearFilters}
-                disabled={interactionLocked}
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-50"
-              >
-                <X className="size-3.5" />
-                Clear filters
-              </button>
+              {selectionMode ? (
+                <span className="text-xs font-medium tabular-nums text-[#536D50]">
+                  {selectedCount} selected
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  disabled={interactionLocked}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[#536D50] hover:underline disabled:opacity-50"
+                >
+                  <X className="size-3.5" />
+                  Clear filters
+                </button>
+              )}
             </div>
           )}
 
           {/* Desktop bulk toolbar */}
           {selectionMode && selectedCount > 0 && (
-            <div className="hidden items-center justify-between gap-3 rounded-lg border bg-muted/40 px-3 py-2.5 md:flex">
-              <span className="text-sm font-medium">
+            <div className="hidden items-center justify-between gap-3 rounded-2xl border border-[#8FA58A]/15 bg-[#F8F6EF]/65 px-3 py-2.5 md:flex">
+              <span className="text-sm font-medium text-[#343B32]">
                 {selectedCount} selected
               </span>
 
@@ -1141,26 +1125,39 @@ export default function InventoryWorkspace({
             !canArchive &&
             !canRestore &&
             !canDelete && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[#7A8775]">
                 Select items with the same archive status
                 to perform a bulk action.
               </p>
             )}
 
-          {/* Bulk result */}
+          {/* Bulk action result */}
           {actionResult && (
             <div
               role="status"
-              className="space-y-2 rounded-lg border px-3 py-2.5 text-sm"
+              className="space-y-2 rounded-2xl border border-[#8FA58A]/20 bg-white/65 p-3 text-sm"
             >
-              <p className="font-medium">
-                {actionLabel(actionResult.action)}:{" "}
-                {actionResult.succeeded} succeeded,{" "}
-                {actionResult.failures.length} failed
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-medium text-[#343B32]">
+                  {actionLabel(actionResult.action)}:{" "}
+                  {actionResult.succeeded} succeeded,{" "}
+                  {actionResult.failures.length} failed
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActionResult(null)
+                  }
+                  aria-label="Dismiss result"
+                  className="shrink-0 text-[#7A8775] hover:text-[#343B32]"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
 
               {actionResult.failures.length > 0 && (
-                <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-destructive">
+                <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-[#B76F67]">
                   {actionResult.failures.map(
                     (failure) => (
                       <li key={failure.id}>
@@ -1171,22 +1168,11 @@ export default function InventoryWorkspace({
                   )}
                 </ul>
               )}
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  setActionResult(null)
-                }
-              >
-                Dismiss
-              </Button>
             </div>
           )}
         </div>
 
-        {/* Desktop/tablet table */}
+        {/* Desktop inventory table */}
         <div
           {...swipeTabs}
           onPointerDown={(event) => {
@@ -1200,11 +1186,11 @@ export default function InventoryWorkspace({
 
             swipeTabs.onPointerDown(event);
           }}
-          className="hidden overflow-x-auto border-t md:block"
+          className="hidden overflow-x-auto border-t border-[#8FA58A]/10 md:block"
         >
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="border-[#8FA58A]/10 bg-[#F8F6EF]/35 hover:bg-[#F8F6EF]/35">
                 {selectionMode && (
                   <TableHead className="w-10 pl-5">
                     <span className="sr-only">
@@ -1213,15 +1199,23 @@ export default function InventoryWorkspace({
                   </TableHead>
                 )}
 
-                <TableHead className="pl-5">
+                <TableHead className="pl-5 text-xs font-medium text-[#7A8775]">
                   Item
                 </TableHead>
 
-                <TableHead>Category</TableHead>
-                <TableHead>Current stock</TableHead>
-                <TableHead>Minimum</TableHead>
+                <TableHead className="text-xs font-medium text-[#7A8775]">
+                  Category
+                </TableHead>
 
-                <TableHead className="pr-5">
+                <TableHead className="text-xs font-medium text-[#7A8775]">
+                  Current stock
+                </TableHead>
+
+                <TableHead className="text-xs font-medium text-[#7A8775]">
+                  Minimum
+                </TableHead>
+
+                <TableHead className="pr-5 text-xs font-medium text-[#7A8775]">
                   Status
                 </TableHead>
               </TableRow>
@@ -1259,27 +1253,27 @@ export default function InventoryWorkspace({
                     onClick={() =>
                       handleRowClick(item.id)
                     }
-                    className={`${
+                    className={[
+                      "border-[#8FA58A]/10",
+                      "transition-colors",
                       archived
-                        ? "bg-muted/20 "
-                        : ""
-                    }${
+                        ? "bg-[#F8F6EF]/35"
+                        : "",
                       selectionMode
-                        ? "cursor-pointer select-none "
-                        : ""
-                    }${
+                        ? "cursor-pointer select-none"
+                        : "",
                       selected
-                        ? "bg-primary/5 hover:bg-primary/10"
-                        : ""
-                    }`}
+                        ? "bg-[#8FA58A]/10 hover:bg-[#8FA58A]/15"
+                        : "hover:bg-white/45",
+                    ].join(" ")}
                   >
                     {selectionMode && (
                       <TableCell className="pl-5">
                         <span
                           className={`flex size-4 items-center justify-center rounded border ${
                             selected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-input"
+                              ? "border-[#536D50] bg-[#536D50] text-white"
+                              : "border-[#8FA58A]/35"
                           }`}
                         >
                           {selected && (
@@ -1289,37 +1283,38 @@ export default function InventoryWorkspace({
                       </TableCell>
                     )}
 
-                    <TableCell className="pl-5">
+                    <TableCell className="py-3.5 pl-5">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#8FA58A]/10 text-[#536D50]">
                           {item.category ===
                           "raw_material" ? (
-                            <Wheat className="size-4 text-muted-foreground" />
+                            <Wheat className="size-4" />
                           ) : (
-                            <Package className="size-4 text-muted-foreground" />
+                            <Package className="size-4" />
                           )}
-                        </div>
+                        </span>
 
-                        <span className="max-w-[220px] truncate font-medium">
+                        <span
+                          className="max-w-[220px] truncate text-sm font-medium text-[#343B32]"
+                          title={item.name}
+                        >
                           {item.name}
                         </span>
                       </div>
                     </TableCell>
 
-                    <TableCell className="text-muted-foreground">
-                      {categoryLabel(
-                        item.category
-                      )}
+                    <TableCell className="text-sm text-[#7A8775]">
+                      {categoryLabel(item.category)}
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap font-medium tabular-nums">
+                    <TableCell className="whitespace-nowrap text-sm font-semibold tabular-nums text-[#343B32]">
                       {formatter.format(
                         Number(item.current_stock)
                       )}{" "}
                       {item.unit}
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-[#7A8775]">
                       {formatter.format(
                         Number(item.minimum_stock)
                       )}{" "}
@@ -1337,9 +1332,21 @@ export default function InventoryWorkspace({
                 <TableRow>
                   <TableCell
                     colSpan={selectionMode ? 6 : 5}
-                    className="h-32 text-center text-sm text-muted-foreground"
+                    className="h-36 text-center"
                   >
-                    No matching inventory items found.
+                    <div className="flex flex-col items-center gap-2">
+                      <Package className="size-7 text-[#8FA58A]/60" />
+
+                      <p className="text-sm font-medium text-[#343B32]">
+                        No items found
+                      </p>
+
+                      <p className="text-xs text-[#7A8775]">
+                        {hasExtraFilters
+                          ? "Try adjusting your search or filters."
+                          : "No inventory items in this view."}
+                      </p>
+                    </div>
                   </TableCell>
                 </TableRow>
               )}
@@ -1350,7 +1357,7 @@ export default function InventoryWorkspace({
         {/* Mobile inventory list */}
         <div
           {...swipeTabs}
-          className="divide-y border-t md:hidden"
+          className="divide-y divide-[#8FA58A]/10 border-t border-[#8FA58A]/10 md:hidden"
         >
           {filteredItems.map((item) => {
             const selected = selectedIdSet.has(
@@ -1406,27 +1413,27 @@ export default function InventoryWorkspace({
                 tabIndex={
                   selectionMode ? 0 : undefined
                 }
-                className={`px-3.5 py-3 transition-colors ${
+                className={[
+                  "px-4 py-3.5",
+                  "transition-colors",
                   isArchived(item)
-                    ? "bg-muted/20 "
-                    : ""
-                }${
+                    ? "bg-[#F8F6EF]/35"
+                    : "",
                   selectionMode
-                    ? "cursor-pointer select-none "
-                    : ""
-                }${
+                    ? "cursor-pointer select-none"
+                    : "",
                   selected
-                    ? "bg-primary/5"
-                    : ""
-                }`}
+                    ? "bg-[#8FA58A]/10"
+                    : "",
+                ].join(" ")}
               >
                 <div className="flex min-w-0 items-center gap-3">
                   {selectionMode && (
                     <span
                       className={`flex size-5 shrink-0 items-center justify-center rounded border ${
                         selected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-input"
+                          ? "border-[#536D50] bg-[#536D50] text-white"
+                          : "border-[#8FA58A]/35"
                       }`}
                     >
                       {selected && (
@@ -1435,16 +1442,24 @@ export default function InventoryWorkspace({
                     </span>
                   )}
 
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#8FA58A]/10 text-[#536D50]">
+                    {item.category === "raw_material" ? (
+                      <Wheat className="size-[18px]" />
+                    ) : (
+                      <Package className="size-[18px]" />
+                    )}
+                  </span>
+
                   <div className="min-w-0 flex-1">
-                    <p className="break-words text-sm font-semibold">
+                    <p className="break-words text-sm font-semibold text-[#343B32]">
                       {item.name}
                     </p>
 
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {categoryLabel(
-                        item.category
-                      )}
-                      {" · "}
+                    <p className="mt-1 text-xs text-[#7A8775]">
+                      {categoryLabel(item.category)}
+                    </p>
+
+                    <p className="mt-1 text-[11px] text-[#7A8775]/80">
                       Min{" "}
                       {formatter.format(
                         Number(item.minimum_stock)
@@ -1453,8 +1468,8 @@ export default function InventoryWorkspace({
                     </p>
                   </div>
 
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-sm font-semibold tabular-nums">
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <span className="text-sm font-semibold tabular-nums text-[#343B32]">
                       {formatter.format(
                         Number(item.current_stock)
                       )}{" "}
@@ -1469,15 +1484,24 @@ export default function InventoryWorkspace({
           })}
 
           {filteredItems.length === 0 && (
-            <div className="px-4 py-10 text-center">
-              <Package className="mx-auto mb-3 size-8 text-muted-foreground/50" />
+            <div className="px-4 py-12 text-center">
+              <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-[#8FA58A]/10 text-[#536D50]">
+                {status === "active" &&
+                !hasExtraFilters ? (
+                  <CheckCircle2 className="size-6" />
+                ) : (
+                  <Package className="size-6" />
+                )}
+              </span>
 
-              <p className="text-sm font-medium">
+              <p className="mt-3 text-sm font-semibold text-[#343B32]">
                 No items found
               </p>
 
-              <p className="mt-1 text-xs text-muted-foreground">
-                Try adjusting your search or filters.
+              <p className="mt-1 text-xs text-[#7A8775]">
+                {hasExtraFilters
+                  ? "Try adjusting your search or filters."
+                  : "No inventory items in this view."}
               </p>
 
               {hasExtraFilters && (
@@ -1487,7 +1511,7 @@ export default function InventoryWorkspace({
                   size="sm"
                   onClick={clearFilters}
                   disabled={interactionLocked}
-                  className="mt-4"
+                  className={`mt-4 ${softButton}`}
                 >
                   Clear filters
                 </Button>
@@ -1499,9 +1523,9 @@ export default function InventoryWorkspace({
 
       {/* Mobile bulk toolbar */}
       {selectionMode && selectedCount > 0 && (
-        <div className="fixed inset-x-3 bottom-3 z-40 rounded-xl border bg-card p-3 shadow-xl md:hidden">
+        <div className="fixed inset-x-3 bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-40 rounded-[20px] border border-white/60 bg-[#FAF7F0]/95 p-3 shadow-[0_12px_36px_rgba(52,59,50,0.15)] backdrop-blur-xl md:hidden">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium">
+            <span className="text-sm font-semibold text-[#343B32]">
               {selectedCount} selected
             </span>
 
@@ -1509,7 +1533,7 @@ export default function InventoryWorkspace({
               type="button"
               onClick={clearSelection}
               disabled={interactionLocked}
-              className="text-xs text-muted-foreground disabled:opacity-50"
+              className="text-xs text-[#7A8775] disabled:opacity-50"
             >
               Clear
             </button>
@@ -1521,7 +1545,7 @@ export default function InventoryWorkspace({
         </div>
       )}
 
-      {/* Controlled Edit Item dialog */}
+      {/* Edit item dialog */}
       {editItem && (
         <EditItemDialog
           key={editItem.id}
@@ -1557,9 +1581,9 @@ export default function InventoryWorkspace({
           }
         }}
       >
-        <AlertDialogContent className="max-w-md">
+        <AlertDialogContent className="max-w-md rounded-[24px] border border-white/60 bg-[#FAF7F0]/95 backdrop-blur-xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>
+            <AlertDialogTitle className="text-[#343B32]">
               {pendingAction
                 ? `${actionLabel(
                     pendingAction
@@ -1567,7 +1591,7 @@ export default function InventoryWorkspace({
                 : "Confirm action"}
             </AlertDialogTitle>
 
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-[#7A8775]">
               {pendingAction === "delete"
                 ? "Selected items will be permanently deleted. Items with transaction history cannot be deleted. This action cannot be undone."
                 : pendingAction === "archive"
@@ -1576,8 +1600,8 @@ export default function InventoryWorkspace({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="max-h-40 overflow-y-auto rounded-lg bg-muted/50 p-3">
-            <ul className="space-y-1 text-sm">
+          <div className="max-h-40 overflow-y-auto rounded-2xl bg-[#8FA58A]/10 p-3">
+            <ul className="space-y-1 text-sm text-[#343B32]">
               {pendingTargets.map((item) => (
                 <li key={item.id}>
                   {item.name}
@@ -1589,7 +1613,7 @@ export default function InventoryWorkspace({
           {processing && (
             <p
               role="status"
-              className="flex items-center gap-2 text-sm text-muted-foreground"
+              className="flex items-center gap-2 text-sm text-[#7A8775]"
             >
               <Loader2 className="size-4 animate-spin" />
               Processing {progress} of{" "}
@@ -1600,6 +1624,7 @@ export default function InventoryWorkspace({
           <AlertDialogFooter>
             <AlertDialogCancel
               disabled={processing}
+              className={softButton}
             >
               Cancel
             </AlertDialogCancel>
@@ -1611,8 +1636,8 @@ export default function InventoryWorkspace({
               }
               className={
                 pendingAction === "delete"
-                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  : ""
+                  ? "bg-[#B76F67] text-white hover:bg-[#A65C55]"
+                  : "bg-[#536D50] text-white hover:bg-[#435A40]"
               }
               onClick={(event) => {
                 event.preventDefault();

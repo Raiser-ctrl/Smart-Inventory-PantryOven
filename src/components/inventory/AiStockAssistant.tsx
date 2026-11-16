@@ -9,17 +9,23 @@ import {
 } from "react";
 
 import {
+  AlertCircle,
   AlertTriangle,
   BrainCircuit,
+  CheckCircle2,
+  Clock3,
   Loader2,
+  Package,
   Sparkles,
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { INVENTORY_UPDATED_EVENT } from "@/lib/inventory-events";
+
+import {
+  INVENTORY_UPDATED_EVENT,
+} from "@/lib/inventory-events";
 
 type InventoryOption = {
   id: string;
@@ -62,23 +68,78 @@ type Props = {
   items: InventoryOption[];
 };
 
-const numberFormatter = new Intl.NumberFormat("id-ID", {
-  maximumFractionDigits: 2,
-});
+const numberFormatter = new Intl.NumberFormat(
+  "id-ID",
+  {
+    maximumFractionDigits: 2,
+  }
+);
 
-const percentFormatter = new Intl.NumberFormat("id-ID", {
-  style: "percent",
-  maximumFractionDigits: 1,
-});
+const percentFormatter = new Intl.NumberFormat(
+  "id-ID",
+  {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }
+);
 
-const statusStyles: Record<StockStatus, string> = {
-  Restock:
-    "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  Sufficient:
-    "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  Excess:
-    "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+const inputClassName = [
+  "h-11 w-full min-w-0 rounded-xl",
+  "border border-[#8FA58A]/20",
+  "bg-white/70 px-3",
+  "text-sm text-[#343B32]",
+  "outline-none",
+  "transition-colors",
+  "focus-visible:border-[#8FA58A]",
+  "focus-visible:ring-2",
+  "focus-visible:ring-[#8FA58A]/20",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+].join(" ");
+
+const labelClassName =
+  "text-xs font-semibold text-[#536D50]";
+
+const statusConfig: Record<
+  StockStatus,
+  {
+    label: string;
+    icon: typeof AlertTriangle;
+    className: string;
+  }
+> = {
+  Restock: {
+    label: "Restock",
+    icon: AlertTriangle,
+    className:
+      "border-[#D4AC72]/30 bg-[#D4AC72]/15 text-[#A77D3D]",
+  },
+  Sufficient: {
+    label: "Sufficient",
+    icon: CheckCircle2,
+    className:
+      "border-[#8FA58A]/30 bg-[#8FA58A]/15 text-[#536D50]",
+  },
+  Excess: {
+    label: "Excess",
+    icon: Package,
+    className:
+      "border-[#8A9EB6]/30 bg-[#8A9EB6]/15 text-[#607D9C]",
+  },
 };
+
+function formatGeneratedAt(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown";
+  }
+
+  return date.toLocaleString("id-ID", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
 
 export default function AiStockAssistant({
   items,
@@ -88,6 +149,7 @@ export default function AiStockAssistant({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
   const [result, setResult] =
     useState<RagResult | null>(null);
 
@@ -95,6 +157,8 @@ export default function AiStockAssistant({
     useRef<AbortController | null>(null);
 
   const requestIdRef = useRef(0);
+
+  const submittingRef = useRef(false);
 
   const selectedItem = items.find(
     (item) => item.id === itemId
@@ -108,34 +172,33 @@ export default function AiStockAssistant({
     leadTimeNumber >= 1 &&
     leadTimeNumber <= 365;
 
-  // Abort pending requests when component unmounts.
+  // Cancel pending requests when unmounted.
   useEffect(() => {
     return () => {
       requestIdRef.current += 1;
       controllerRef.current?.abort();
+      controllerRef.current = null;
+      submittingRef.current = false;
     };
   }, []);
 
   function invalidateResult() {
     requestIdRef.current += 1;
+
     controllerRef.current?.abort();
     controllerRef.current = null;
+
+    submittingRef.current = false;
 
     setLoading(false);
     setError("");
     setResult(null);
   }
 
-  // Invalidate RAG results after a successful stock transaction.
+  // Clear outdated recommendations when stock changes.
   useEffect(() => {
     function handleInventoryUpdated() {
-      requestIdRef.current += 1;
-      controllerRef.current?.abort();
-      controllerRef.current = null;
-
-      setLoading(false);
-      setError("");
-      setResult(null);
+      invalidateResult();
     }
 
     window.addEventListener(
@@ -157,7 +220,7 @@ export default function AiStockAssistant({
     event.preventDefault();
 
     if (
-      loading ||
+      submittingRef.current ||
       !selectedItem ||
       !validLeadTime
     ) {
@@ -167,9 +230,12 @@ export default function AiStockAssistant({
     invalidateResult();
 
     const requestId = requestIdRef.current;
+
     const controller = new AbortController();
 
     controllerRef.current = controller;
+    submittingRef.current = true;
+
     setLoading(true);
 
     try {
@@ -190,16 +256,16 @@ export default function AiStockAssistant({
         }
       );
 
-      const payload: RagResponse =
-        await response.json();
+      const payload: RagResponse | null =
+        await response.json().catch(() => null);
 
       if (
         !response.ok ||
-        payload.success !== true ||
+        payload?.success !== true ||
         !payload.data
       ) {
         throw new Error(
-          payload.message ??
+          payload?.message ??
             "Gagal menghasilkan rekomendasi AI."
         );
       }
@@ -233,52 +299,77 @@ export default function AiStockAssistant({
       );
     } finally {
       if (requestId === requestIdRef.current) {
+        submittingRef.current = false;
         setLoading(false);
         controllerRef.current = null;
       }
     }
   }
 
+  const currentStatus = result
+    ? statusConfig[
+        result.prediction.stock_status
+      ]
+    : null;
+
+  const StatusIcon =
+    currentStatus?.icon ?? Package;
+
+  const resultUnit = result
+    ? result.item.unit ??
+      items.find(
+        (item) => item.id === result.item.id
+      )?.unit ??
+      ""
+    : "";
+
   return (
     <section
       aria-labelledby="ai-assistant-title"
-      className="min-w-0 space-y-4 rounded-xl border bg-card p-4 sm:p-5"
+      className={[
+        "min-w-0 overflow-hidden",
+        "rounded-[24px]",
+        "border border-white/55",
+        "bg-white/45",
+        "shadow-[0_10px_36px_rgba(52,59,50,0.045)]",
+        "backdrop-blur-xl",
+      ].join(" ")}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3 px-4 pb-4 pt-5 sm:px-5">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <BrainCircuit className="size-5" />
-          </div>
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[#8FA58A]/15 text-[#536D50]">
+            <BrainCircuit
+              aria-hidden="true"
+              className="size-5"
+            />
+          </span>
 
-          <div>
+          <div className="min-w-0">
             <h2
               id="ai-assistant-title"
-              className="text-base font-semibold tracking-tight sm:text-lg"
+              className="text-base font-semibold tracking-tight text-[#343B32]"
             >
               AI Stock Assistant
             </h2>
 
-            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
-              Generate inventory recommendations
-              using machine learning and RAG.
+            <p className="mt-1 text-xs leading-relaxed text-[#7A8775]">
+              Smart inventory recommendations
+              powered by ML and RAG.
             </p>
           </div>
         </div>
-
-        <Badge variant="secondary">
-          <Sparkles className="mr-1 size-3" />
-          AI Recommendation
-        </Badge>
       </div>
 
+      {/* Controls */}
       <form
         onSubmit={handleGenerate}
-        className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto] sm:items-end"
+        className="grid gap-3 border-t border-[#8FA58A]/10 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_130px_auto] sm:items-end sm:px-5"
       >
-        <div className="min-w-0 space-y-1.5">
+        <div className="min-w-0 space-y-2">
           <label
             htmlFor="rag-item"
-            className="text-xs font-medium"
+            className={labelClassName}
           >
             Inventory item
           </label>
@@ -286,15 +377,17 @@ export default function AiStockAssistant({
           <select
             id="rag-item"
             value={itemId}
-            disabled={loading || items.length === 0}
+            disabled={
+              loading || items.length === 0
+            }
             onChange={(event) => {
               invalidateResult();
               setItemId(event.target.value);
             }}
-            className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className={inputClassName}
           >
             <option value="">
-              Select an active item
+              Select an item
             </option>
 
             {items.map((item) => (
@@ -308,10 +401,10 @@ export default function AiStockAssistant({
           </select>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-2">
           <label
             htmlFor="rag-lead-time"
-            className="text-xs font-medium"
+            className={labelClassName}
           >
             Lead time (days)
           </label>
@@ -322,13 +415,14 @@ export default function AiStockAssistant({
             min={1}
             max={365}
             step={1}
+            inputMode="numeric"
             value={leadTime}
             disabled={loading}
             onChange={(event) => {
               invalidateResult();
               setLeadTime(event.target.value);
             }}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className={inputClassName}
           />
         </div>
 
@@ -339,156 +433,223 @@ export default function AiStockAssistant({
             !selectedItem ||
             !validLeadTime
           }
-          className="w-full sm:w-auto"
+          className={[
+            "h-11 w-full rounded-xl",
+            "bg-[#536D50] px-4",
+            "font-semibold text-white",
+            "hover:bg-[#435A40]",
+            "disabled:opacity-50",
+            "sm:w-auto",
+          ].join(" ")}
         >
           {loading ? (
             <>
-              <Loader2 className="mr-2 size-4 animate-spin" />
+              <Loader2
+                aria-hidden="true"
+                className="mr-2 size-4 animate-spin"
+              />
               Generating...
             </>
           ) : (
             <>
-              <Sparkles className="mr-2 size-4" />
+              <Sparkles
+                aria-hidden="true"
+                className="mr-2 size-4"
+              />
               Generate
             </>
           )}
         </Button>
       </form>
 
+      {/* Empty inventory */}
       {items.length === 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="px-5 pb-4 text-xs text-[#7A8775]">
           No active inventory items available.
         </p>
       )}
 
+      {/* Loading */}
       {loading && (
         <div
           role="status"
-          className="flex items-start gap-3 rounded-lg border bg-muted/30 p-4"
+          className="mx-4 mb-4 flex items-start gap-3 rounded-2xl border border-[#8FA58A]/15 bg-[#8FA58A]/10 p-4 sm:mx-5"
         >
-          <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
+          <Loader2
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 animate-spin text-[#536D50]"
+          />
 
-          <div className="space-y-1">
-            <p className="text-sm font-medium">
-              Generating AI recommendation...
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[#343B32]">
+              Preparing your recommendation...
             </p>
 
-            <p className="text-xs text-muted-foreground">
-              Analyzing inventory, predicting
-              stock status, and retrieving
-              knowledge base references.
+            <p className="mt-1 text-xs leading-relaxed text-[#7A8775]">
+              Analyzing stock patterns and retrieving
+              relevant inventory knowledge.
             </p>
           </div>
         </div>
       )}
 
+      {/* Error */}
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          className="mx-4 mb-4 flex items-start gap-2 rounded-2xl border border-[#C9857C]/25 bg-[#C9857C]/10 p-3 sm:mx-5"
         >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
+          <AlertCircle
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-[#B76F67]"
+          />
+
+          <p className="text-xs leading-relaxed text-[#A65C55]">
+            {error}
+          </p>
         </div>
       )}
 
+      {/* Results */}
       {result && (
         <div
           aria-live="polite"
-          className="space-y-4 border-t pt-4"
+          className="space-y-4 border-t border-[#8FA58A]/15 px-4 py-5 sm:px-5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-xs text-muted-foreground">
+          {/* Result heading */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#7A8775]">
                 Recommendation for
               </p>
 
-              <h3 className="font-semibold">
+              <h3 className="mt-1 break-words text-base font-semibold text-[#343B32]">
                 {result.item.name}
               </h3>
             </div>
 
-            <Badge
-              variant="outline"
-              className={
-                statusStyles[
-                  result.prediction.stock_status
-                ] ?? ""
-              }
-            >
-              {result.prediction.stock_status}
-            </Badge>
+            {currentStatus && (
+              <span
+                className={[
+                  "inline-flex items-center gap-1.5",
+                  "rounded-full border px-3 py-1.5",
+                  "text-xs font-semibold",
+                  currentStatus.className,
+                ].join(" ")}
+              >
+                <StatusIcon
+                  aria-hidden="true"
+                  className="size-3.5"
+                />
+
+                {currentStatus.label}
+              </span>
+            )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-xs text-muted-foreground">
-                Current stock
+          {/* Compact stock summary */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div className="min-w-0 rounded-2xl bg-[#F8F6EF]/75 p-3">
+              <p className="text-[11px] text-[#7A8775]">
+                Current
               </p>
 
-              <p className="mt-1 text-lg font-semibold tabular-nums">
+              <p className="mt-1 break-words text-sm font-semibold tabular-nums text-[#343B32] sm:text-base">
                 {numberFormatter.format(
                   result.inventory.current_stock
-                )}{" "}
-                {result.item.unit ??
-                  selectedItem?.unit ??
-                  ""}
+                )}
+              </p>
+
+              <p className="mt-0.5 text-[10px] text-[#7A8775]">
+                {resultUnit}
               </p>
             </div>
 
-            <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-xs text-muted-foreground">
-                Minimum stock
+            <div className="min-w-0 rounded-2xl bg-[#F8F6EF]/75 p-3">
+              <p className="text-[11px] text-[#7A8775]">
+                Minimum
               </p>
 
-              <p className="mt-1 text-lg font-semibold tabular-nums">
+              <p className="mt-1 break-words text-sm font-semibold tabular-nums text-[#343B32] sm:text-base">
                 {numberFormatter.format(
                   result.inventory.minimum_stock
-                )}{" "}
-                {result.item.unit ??
-                  selectedItem?.unit ??
-                  ""}
+                )}
+              </p>
+
+              <p className="mt-0.5 text-[10px] text-[#7A8775]">
+                {resultUnit}
               </p>
             </div>
 
-            <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-xs text-muted-foreground">
-                Model confidence
+            <div className="min-w-0 rounded-2xl bg-[#F8F6EF]/75 p-3">
+              <p className="text-[11px] text-[#7A8775]">
+                Confidence
               </p>
 
-              <p className="mt-1 text-lg font-semibold tabular-nums">
+              <p className="mt-1 break-words text-sm font-semibold tabular-nums text-[#343B32] sm:text-base">
                 {percentFormatter.format(
                   result.prediction.confidence
                 )}
               </p>
+
+              <p className="mt-0.5 text-[10px] text-[#7A8775]">
+                ML model
+              </p>
             </div>
           </div>
 
+          {/* Data quality warning */}
           {result.data_quality !== "adequate" && (
             <div
               role="status"
-              className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400"
+              className="flex items-start gap-2 rounded-xl border border-[#D4AC72]/25 bg-[#D4AC72]/10 p-3"
             >
-              <AlertTriangle className="size-4 shrink-0" />
+              <AlertTriangle
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-[#A77D3D]"
+              />
 
-              <span>
-                Data quality: {result.data_quality}.
-                Historical usage data is limited.
-                Review recommendations manually.
-              </span>
+              <p className="text-xs leading-relaxed text-[#A77D3D]">
+                Limited historical data (
+                {result.data_quality}). Review this
+                recommendation before taking action.
+              </p>
             </div>
           )}
 
-          <div className="space-y-3 rounded-lg border p-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-primary" />
+          {/* AI recommendation */}
+          <div className="min-w-0 rounded-2xl border border-[#8FA58A]/15 bg-white/60 p-4 sm:p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Sparkles
+                aria-hidden="true"
+                className="size-4 text-[#536D50]"
+              />
 
-              <h3 className="text-sm font-semibold">
+              <h4 className="text-sm font-semibold text-[#343B32]">
                 AI Recommendation
-              </h3>
+              </h4>
             </div>
 
-            <div className="min-w-0 space-y-3 break-words text-sm leading-relaxed text-foreground [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_h3]:text-sm [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_p]:my-2 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+            <div
+              className={[
+                "min-w-0 break-words",
+                "text-sm leading-7 text-[#343B32]",
+                "[&_p]:my-2",
+                "[&_strong]:font-semibold",
+                "[&_h1]:font-semibold",
+                "[&_h2]:font-semibold",
+                "[&_h3]:font-semibold",
+                "[&_ul]:my-2",
+                "[&_ul]:list-disc",
+                "[&_ul]:space-y-1",
+                "[&_ul]:pl-5",
+                "[&_ol]:my-2",
+                "[&_ol]:list-decimal",
+                "[&_ol]:space-y-1",
+                "[&_ol]:pl-5",
+                "[&_li]:pl-0.5",
+              ].join(" ")}
+            >
               <ReactMarkdown
                 skipHtml
                 components={{
@@ -502,18 +663,29 @@ export default function AiStockAssistant({
             </div>
           </div>
 
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Generated using RAG and an ML model
-            trained on synthetic rule-labeled data.
-            Predictions are not guarantees.
-            Always verify stock decisions manually.
-          </p>
+          {/* Compact footer */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] leading-relaxed text-[#7A8775]">
+            <span className="inline-flex items-center gap-1.5">
+              <Clock3
+                aria-hidden="true"
+                className="size-3.5"
+              />
 
-          <p className="text-xs text-muted-foreground">
-            Generated at:{" "}
-            {new Date(
-              result.generated_at
-            ).toLocaleString("id-ID")}
+              {formatGeneratedAt(
+                result.generated_at
+              )}
+            </span>
+
+            <span>
+              Lead time: {result.lead_time_days} days
+            </span>
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-[#7A8775]">
+            Generated with RAG and an ML model trained
+            on synthetic rule-labeled data.
+            Predictions are estimates, not guarantees.
+            Verify inventory decisions manually.
           </p>
         </div>
       )}

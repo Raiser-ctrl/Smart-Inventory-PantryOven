@@ -1,0 +1,148 @@
+
+/* PantryOven V2 — Cozy Bakery Glass */
+/* Visual foundation. No backend or business logic changes. */
+
+:root {
+  --po-cream: #faf7f0;
+  --po-surface: #fffefb;
+  --po-sage: #8fa58a;
+  --po-sage-deep: #536d50;
+  --po-crust: #c99165;
+  --po-dough: #eedcc7;
+  --po-cocoa: #343b32;
+
+  --po-glass-bg: rgb(255 254 251 / 78%);
+  --po-glass-border: rgb(255 255 255 / 78%);
+  --po-glass-shadow:
+    0 16px 48px rgb(73 61 44 / 8%),
+    0 2px 8px rgb(73 61 44 / 4%);
+
+  --po-radius-card: 22px;
+  --po-radius-glass: 24px;
+  --po-motion: 200ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.dark {
+  --po-cream: #20251f;
+  --po-surface: #2b322a;
+  --po-sage: #a3b99d;
+  --po-sage-deep: #c2d7ba;
+  --po-crust: #deb18b;
+  --po-dough: #514439;
+  --po-cocoa: #f3efe5;
+
+  --po-glass-bg: rgb(39 47 38 / 88%);
+  --po-glass-border: rgb(255 255 255 / 12%);
+  --po-glass-shadow: 0 16px 48px rgb(0 0 0 / 24%);
+}
+
+/* Scoped workspace: existing auth pages stay untouched. */
+
+.po-workspace {
+  min-width: 0;
+  color: var(--po-cocoa);
+  background:
+    radial-gradient(
+      ellipse at 10% 0%,
+      rgb(143 165 138 / 12%),
+      transparent 38%
+    ),
+    radial-gradient(
+      ellipse at 95% 12%,
+      rgb(201 145 101 / 9%),
+      transparent 32%
+    ),
+    var(--po-cream);
+}
+
+/* Frosted glass for navigation and floating controls. */
+
+.po-glass {
+  background: var(--po-glass-bg);
+  border: 1px solid var(--po-glass-border);
+  border-radius: var(--po-radius-glass);
+  box-shadow: var(--po-glass-shadow);
+}
+
+@supports (backdrop-filter: blur(16px)) {
+  .po-glass {
+    backdrop-filter: blur(18px) saturate(135%);
+    -webkit-backdrop-filter: blur(18px) saturate(135%);
+  }
+}
+
+/* Solid surfaces for data-heavy sections. */
+
+.po-panel {
+  min-width: 0;
+  background: var(--po-surface);
+  border: 1px solid rgb(120 111 94 / 12%);
+  border-radius: var(--po-radius-card);
+  box-shadow: 0 5px 24px rgb(73 61 44 / 4%);
+}
+
+.po-panel-soft {
+  background: rgb(143 165 138 / 8%);
+  border: 1px solid rgb(143 165 138 / 16%);
+  border-radius: 18px;
+}
+
+/* Visual accent: use sparingly. */
+
+.po-bakery-accent {
+  background: linear-gradient(
+    135deg,
+    var(--po-dough),
+    var(--po-cream) 65%,
+    rgb(143 165 138 / 15%)
+  );
+  border-radius: var(--po-radius-card);
+}
+
+/* Interactive surfaces */
+
+.po-interactive {
+  transition:
+    background-color var(--po-motion),
+    border-color var(--po-motion),
+    box-shadow var(--po-motion),
+    transform var(--po-motion);
+}
+
+@media (hover: hover) {
+  .po-interactive:hover {
+    transform: translateY(-2px);
+  }
+}
+
+.po-interactive:focus-visible {
+  outline: 3px solid var(--po-sage-deep);
+  outline-offset: 3px;
+}
+
+/* Mobile safe-area support for the future floating dock. */
+
+.po-mobile-dock {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+/* Accessibility */
+
+@media (prefers-reduced-motion: reduce) {
+  .po-interactive {
+    transition: none;
+    animation: none;
+  }
+
+  .po-interactive:hover {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .po-glass {
+    background: var(--po-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

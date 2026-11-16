@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -199,6 +198,7 @@ export default function ResetPasswordPage() {
 
   return (
     <AuthShell
+      illustration="reset"
       title={title}
       description={description}
     >
@@ -209,9 +209,9 @@ export default function ResetPasswordPage() {
         >
           <Loader2
             aria-hidden="true"
-            className="size-8 animate-spin text-[#617451]"
+            className="size-8 animate-spin text-[#536D50]"
           />
-          <p className="text-sm text-[#8a7b6b]">
+          <p className="text-sm text-[#5F705B]">
             Memeriksa sesi akun...
           </p>
         </div>
@@ -220,18 +220,18 @@ export default function ResetPasswordPage() {
           <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-[#e8efe2]">
             <CheckCircle2
               aria-hidden="true"
-              className="size-7 text-[#617451]"
+              className="size-7 text-[#536D50]"
             />
           </div>
 
-          <p className="text-sm leading-6 text-[#8a7b6b]">
+          <p className="text-sm leading-6 text-[#5F705B]">
             Password berhasil diperbarui.
             Silakan login menggunakan password baru.
           </p>
 
           <Button
             asChild
-            className="po-button w-full font-semibold"
+            className="po-button min-h-11 w-full font-semibold"
           >
             <Link href="/login">
               <ArrowLeft className="mr-2 size-4" />
@@ -258,7 +258,7 @@ export default function ResetPasswordPage() {
 
           <Button
             asChild
-            className="po-button w-full font-semibold"
+            className="po-button min-h-11 w-full font-semibold"
           >
             <Link href="/forgot-password">
               Minta Link Reset Baru
@@ -267,7 +267,7 @@ export default function ResetPasswordPage() {
 
           <Link
             href="/login"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-[#617451] hover:underline"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-[#536D50] hover:underline"
           >
             <ArrowLeft className="size-4" />
             Kembali ke Login
@@ -283,7 +283,7 @@ export default function ResetPasswordPage() {
           <div className="space-y-2">
             <Label
               htmlFor="password"
-              className="text-[#594c40]"
+              className="text-[#343B32]"
             >
               Password Baru
             </Label>
@@ -291,7 +291,7 @@ export default function ResetPasswordPage() {
             <div className="relative">
               <LockKeyhole
                 aria-hidden="true"
-                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
               />
 
               <Input
@@ -311,7 +311,7 @@ export default function ResetPasswordPage() {
                   setErrorMessage("");
                 }}
                 disabled={loading}
-                className="po-input pl-11 pr-12"
+                className="po-input min-h-11 pl-11 pr-12"
               />
 
               <button
@@ -326,7 +326,7 @@ export default function ResetPasswordPage() {
                     : "Tampilkan password"
                 }
                 aria-pressed={showPassword}
-                className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-2xl text-[#938574] hover:text-[#463a30] disabled:opacity-50"
+                className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-2xl text-[#5F705B] hover:text-[#343B32] disabled:opacity-50"
               >
                 {showPassword ? (
                   <EyeOff className="size-4" />
@@ -340,7 +340,7 @@ export default function ResetPasswordPage() {
           <div className="space-y-2">
             <Label
               htmlFor="confirm-password"
-              className="text-[#594c40]"
+              className="text-[#343B32]"
             >
               Konfirmasi Password
             </Label>
@@ -365,7 +365,7 @@ export default function ResetPasswordPage() {
                   setErrorMessage("");
                 }}
                 disabled={loading}
-                className="po-input pr-12"
+                className="po-input min-h-11 pr-12"
               />
 
               <button
@@ -382,7 +382,7 @@ export default function ResetPasswordPage() {
                     : "Tampilkan konfirmasi password"
                 }
                 aria-pressed={showConfirmPassword}
-                className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-2xl text-[#938574] hover:text-[#463a30]"
+                className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-2xl text-[#5F705B] hover:text-[#343B32]"
               >
                 {showConfirmPassword ? (
                   <EyeOff className="size-4" />
@@ -405,7 +405,7 @@ export default function ResetPasswordPage() {
           <Button
             type="submit"
             disabled={loading}
-            className="po-button w-full font-semibold"
+            className="po-button min-h-11 w-full font-semibold"
           >
             {loading ? (
               <>
@@ -420,7 +420,7 @@ export default function ResetPasswordPage() {
           <div className="text-center">
             <Link
               href="/forgot-password"
-              className="text-sm font-semibold text-[#617451] hover:underline"
+              className="text-sm font-semibold text-[#536D50] hover:underline"
             >
               Minta link reset baru
             </Link>

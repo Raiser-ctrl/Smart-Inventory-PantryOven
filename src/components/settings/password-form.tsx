@@ -64,7 +64,7 @@ function PasswordField({
             description ? `${id}-help` : undefined
           }
           className="
-            h-11 w-full min-w-0 rounded-xl pr-12
+            h-11 w-full min-w-0 rounded-xl border-[#8FA58A]/30 bg-white/80 text-base focus-visible:ring-[#8FA58A]/45 sm:text-sm dark:border-input dark:bg-input/30 pr-12
             [&::-ms-reveal]:hidden
             [&::-ms-clear]:hidden
           "
@@ -83,14 +83,14 @@ function PasswordField({
             setVisible((current) => !current)
           }
           className="
-            absolute inset-y-0 right-1
-            flex w-10 items-center justify-center
+            absolute inset-y-0 right-0
+            flex w-11 items-center justify-center
             rounded-lg text-muted-foreground
             transition-colors
             hover:text-foreground
             focus-visible:outline-none
             focus-visible:ring-2
-            focus-visible:ring-ring
+            focus-visible:ring-[#8FA58A]/60
             disabled:pointer-events-none
             disabled:opacity-50
           "
@@ -266,7 +266,7 @@ export function PasswordForm() {
       {/* Current password */}
       <PasswordField
         id="current-password"
-        label="Current Password"
+        label="Password saat ini"
         value={currentPassword}
         onChange={(value) => {
           setCurrentPassword(value);
@@ -280,7 +280,7 @@ export function PasswordForm() {
       {/* New password */}
       <PasswordField
         id="new-password"
-        label="New Password"
+        label="Password baru"
         value={newPassword}
         onChange={(value) => {
           setNewPassword(value);
@@ -299,7 +299,7 @@ export function PasswordForm() {
       {/* Confirm password */}
       <PasswordField
         id="confirm-password"
-        label="Confirm New Password"
+        label="Konfirmasi password baru"
         value={confirmPassword}
         onChange={(value) => {
           setConfirmPassword(value);
@@ -311,6 +311,11 @@ export function PasswordForm() {
         invalid={
           confirmPassword.length > 0 &&
           !passwordsMatch
+        }
+        description={
+          confirmPassword.length > 0 && !passwordsMatch
+            ? "Konfirmasi password belum cocok."
+            : undefined
         }
       />
 
@@ -347,11 +352,11 @@ export function PasswordForm() {
       )}
 
       {/* Submit */}
-      <div className="flex justify-end border-t pt-5">
+      <div className="flex justify-end border-t border-[#8FA58A]/15 pt-5">
         <Button
           type="submit"
           disabled={!isValid || saving}
-          className="h-10 w-full rounded-xl bg-[#687c59] text-white hover:bg-[#56694a] sm:w-auto"
+          className="min-h-11 w-full rounded-xl bg-[#536D50] text-white hover:bg-[#435940] sm:w-auto"
         >
           {saving && (
             <Loader2
@@ -361,8 +366,8 @@ export function PasswordForm() {
           )}
 
           {saving
-            ? "Updating..."
-            : "Update Password"}
+            ? "Menyimpan..."
+            : "Simpan password"}
         </Button>
       </div>
     </form>

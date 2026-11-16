@@ -143,7 +143,7 @@ export default function TransactionExport({
                 ? "Invalid transaction type"
                 : "Export transaction history"
           }
-          className="min-h-11 w-full gap-2 sm:w-auto"
+          className="min-h-11 w-full gap-2 sm:w-auto rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
         >
           {exporting ? (
             <Loader2
@@ -164,12 +164,12 @@ export default function TransactionExport({
       <DropdownMenuContent
         align="end"
         sideOffset={6}
-        className="w-48 max-w-[calc(100vw-2rem)] p-1"
+        className="w-48 max-w-[calc(100vw-2rem)] p-1 rounded-2xl border-[#8FA58A]/20 bg-[#FCFBF7] text-[#343B32] shadow-lg"
       >
         <DropdownMenuItem
           disabled={exportDisabled}
           onSelect={() => handleExport("csv")}
-          className="min-h-11 cursor-pointer gap-2 px-3"
+          className="min-h-11 cursor-pointer gap-2 rounded-xl px-3 focus:bg-[#8FA58A]/15 focus:text-[#343B32]"
         >
           <FileText
             aria-hidden="true"
@@ -181,7 +181,7 @@ export default function TransactionExport({
         <DropdownMenuItem
           disabled={exportDisabled}
           onSelect={() => handleExport("xlsx")}
-          className="min-h-11 cursor-pointer gap-2 px-3"
+          className="min-h-11 cursor-pointer gap-2 rounded-xl px-3 focus:bg-[#8FA58A]/15 focus:text-[#343B32]"
         >
           <FileSpreadsheet
             aria-hidden="true"

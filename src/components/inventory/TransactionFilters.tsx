@@ -451,7 +451,7 @@ export default function TransactionFilters({
   return (
     <section
       aria-label="Transaction filters"
-      className="min-w-0 rounded-xl border bg-card p-3.5 sm:p-4"
+      className="min-w-0 rounded-[26px] border border-white/55 bg-white/45 shadow-[0_10px_36px_rgba(52,59,50,0.045)] backdrop-blur-xl p-3.5 sm:p-4"
     >
       <div className="flex flex-col gap-3">
         {/* Search and dropdowns */}
@@ -460,7 +460,7 @@ export default function TransactionFilters({
           <div className="relative min-w-0 flex-1">
             <Search
               aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#5F705B]"
             />
 
             <Input
@@ -474,7 +474,7 @@ export default function TransactionFilters({
               placeholder="Search item name..."
               aria-label="Search transactions by item name"
               maxLength={MAX_SEARCH_LENGTH}
-              className="h-11 min-w-0 pl-9 pr-10 text-base sm:text-sm [&::-webkit-search-cancel-button]:hidden"
+              className="h-11 min-w-0 rounded-xl border-[#8FA58A]/25 bg-white/75 text-[#343B32] focus-visible:ring-[#8FA58A]/45 pl-9 pr-10 text-base sm:text-sm [&::-webkit-search-cancel-button]:hidden"
             />
 
             {searchValue && (
@@ -482,7 +482,7 @@ export default function TransactionFilters({
                 type="button"
                 aria-label="Clear search"
                 onClick={clearSearch}
-                className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-[#5F705B] transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X
                   aria-hidden="true"
@@ -493,7 +493,7 @@ export default function TransactionFilters({
           </div>
 
           {/* Dropdown filters */}
-          <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-3 lg:flex lg:items-center">
+          <div className="grid min-w-0 grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:gap-3 lg:flex lg:items-center">
             {/* Transaction type */}
             <Select
               value={selectedType}
@@ -505,14 +505,14 @@ export default function TransactionFilters({
             >
               <SelectTrigger
                 aria-label="Transaction type"
-                className="h-11 w-full min-w-0 lg:w-[185px]"
+                className="h-11 w-full min-w-0 rounded-xl border-[#8FA58A]/25 bg-white/75 text-[#343B32] focus-visible:ring-[#8FA58A]/45 lg:w-[185px]"
               >
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
 
-              <SelectContent>
+              <SelectContent className="rounded-2xl border-[#8FA58A]/20 bg-[#FCFBF7] text-[#343B32] shadow-lg">
                 <SelectItem value="all">
-                  All Transactions
+                  All Types
                 </SelectItem>
 
                 <SelectItem value="stock_in">
@@ -542,17 +542,17 @@ export default function TransactionFilters({
             >
               <SelectTrigger
                 aria-label="Transaction period"
-                className="h-11 w-full min-w-0 lg:w-[190px]"
+                className="h-11 w-full min-w-0 rounded-xl border-[#8FA58A]/25 bg-white/75 text-[#343B32] focus-visible:ring-[#8FA58A]/45 lg:w-[190px]"
               >
                 <CalendarDays
                   aria-hidden="true"
-                  className="size-4 shrink-0 text-muted-foreground"
+                  className="size-4 shrink-0 text-[#5F705B]"
                 />
 
                 <SelectValue placeholder="Period" />
               </SelectTrigger>
 
-              <SelectContent>
+              <SelectContent className="rounded-2xl border-[#8FA58A]/20 bg-[#FCFBF7] text-[#343B32] shadow-lg">
                 <SelectItem value="today">
                   Today
                 </SelectItem>
@@ -587,12 +587,12 @@ export default function TransactionFilters({
 
         {/* Custom date range */}
         {selectedPeriod === "custom" && (
-          <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-3 rounded-2xl border border-[#8FA58A]/15 bg-[#F8F6EF]/65 p-3 sm:flex-row sm:items-end">
             {/* Start date */}
             <div className="min-w-0 flex-1 space-y-1.5">
               <label
                 htmlFor="transaction-start-date"
-                className="text-xs font-medium text-muted-foreground"
+                className="text-xs font-medium text-[#5F705B]"
               >
                 From
               </label>
@@ -607,7 +607,7 @@ export default function TransactionFilters({
                     event.target.value
                   )
                 }
-                className="h-11 w-full min-w-0 text-base sm:text-sm"
+                className="h-11 w-full min-w-0 rounded-xl border-[#8FA58A]/25 bg-white/75 text-[#343B32] focus-visible:ring-[#8FA58A]/45 text-base sm:text-sm"
               />
             </div>
 
@@ -615,7 +615,7 @@ export default function TransactionFilters({
             <div className="min-w-0 flex-1 space-y-1.5">
               <label
                 htmlFor="transaction-end-date"
-                className="text-xs font-medium text-muted-foreground"
+                className="text-xs font-medium text-[#5F705B]"
               >
                 To
               </label>
@@ -630,7 +630,7 @@ export default function TransactionFilters({
                     event.target.value
                   )
                 }
-                className="h-11 w-full min-w-0 text-base sm:text-sm"
+                className="h-11 w-full min-w-0 rounded-xl border-[#8FA58A]/25 bg-white/75 text-[#343B32] focus-visible:ring-[#8FA58A]/45 text-base sm:text-sm"
               />
             </div>
 
@@ -661,7 +661,7 @@ export default function TransactionFilters({
               variant="ghost"
               size="sm"
               onClick={resetFilters}
-              className="min-h-11 gap-2 text-muted-foreground hover:text-foreground"
+              className="min-h-11 gap-2 text-[#5F705B] hover:text-foreground"
             >
               <RotateCcw
                 aria-hidden="true"

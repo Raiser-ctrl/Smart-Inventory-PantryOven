@@ -28,7 +28,7 @@ export default async function SettingsPage() {
       </header>
 
       {/* Account security */}
-      <section className="max-w-4xl overflow-hidden rounded-2xl border bg-card">
+      <section className="w-full max-w-2xl overflow-hidden rounded-2xl border bg-card">
         <div className="flex items-start gap-3 border-b px-4 py-5 sm:gap-4 sm:px-6 sm:py-6">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#edf2e9] text-[#617451] dark:bg-[#293729] dark:text-[#b7cba9]">
             <LockKeyhole

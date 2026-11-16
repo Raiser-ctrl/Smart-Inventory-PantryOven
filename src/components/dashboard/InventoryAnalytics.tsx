@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 
 import {
   Bar,
@@ -38,7 +38,18 @@ type LowStockItem = {
   minimum_stock: number;
 };
 
+type ItemSeries = {
+  item_id: string;
+  name: string;
+  unit: string;
+  category: string;
+  totals: Record<TransactionType, number>;
+  daily: DailyActivity[];
+  transactionCount: number;
+};
+
 type AnalyticsData = {
+  itemSeries?: ItemSeries[];
   totals: Record<TransactionType, number>;
   daily: DailyActivity[];
   lowStock: LowStockItem[];
@@ -69,27 +80,27 @@ const activityTypes: {
 }[] = [
   {
     key: "stock_in",
-    label: "Stock in",
-    color: "#4d9270",
+    label: "Stok masuk",
+    color: "#607E5A",
   },
   {
     key: "stock_out",
-    label: "Stock out",
-    color: "#6588b3",
+    label: "Stok keluar",
+    color: "#647E9B",
   },
   {
     key: "usage",
-    label: "Usage",
-    color: "#c69a4b",
+    label: "Pemakaian",
+    color: "#B77653",
   },
   {
     key: "waste",
     label: "Waste",
-    color: "#c46c68",
+    color: "#B68B32",
   },
 ];
 
-function formatDate(value: string) {
+function formatDate(value: string): string {
   const [year, month, day] = value.split("-").map(Number);
 
   return new Intl.DateTimeFormat("id-ID", {
@@ -180,9 +191,9 @@ function createWeeklyData(
 
   return [...groups.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([index, group]) => ({
+    .map(([, group]) => ({
       date: group.start,
-      label: `W${index + 1}`,
+      label: `${formatDate(group.start)}`,
       rangeLabel: `${formatDate(
         group.start
       )} – ${formatDate(group.end)}`,
@@ -190,7 +201,7 @@ function createWeeklyData(
     }));
 }
 
-function getEntryLabel(entry: ChartEntry) {
+function getEntryLabel(entry: ChartEntry): string {
   return entry.rangeLabel ?? formatDate(entry.date);
 }
 
@@ -199,24 +210,26 @@ function ActivityChart({
   selected,
   mobile,
   width,
-  period,
-  onSelectEntry,
+  weekly,
+  unit,
+  quantityMode,
 }: {
   data: ChartEntry[];
   selected: ActivityFilter;
   mobile: boolean;
   width: number;
-  period: 7 | 30;
-  onSelectEntry: (entry: ChartEntry) => void;
+  weekly: boolean;
+  unit: string;
+  quantityMode: boolean;
 }) {
   const visibleTypes = activityTypes.filter(
     (type) =>
       selected === "all" || type.key === selected
   );
 
-  const groupedWeekly = period === 30;
+  const groupedWeekly = weekly;
 
-  const chartHeight = mobile ? 220 : 290;
+  const chartHeight = mobile ? 224 : 292;
 
   const maxBarSize =
     selected === "all"
@@ -244,67 +257,52 @@ function ActivityChart({
       margin={{
         top: 14,
         right: mobile ? 4 : 12,
-        left: mobile ? -22 : -12,
+        left: 0,
         bottom: 4,
       }}
       barCategoryGap={
         groupedWeekly ? "25%" : "30%"
       }
       barGap={3}
-    onClick={(state) => {
-  const index = state?.activeTooltipIndex;
 
-  if (index === undefined || index === null) {
-    return;
-  }
-
-  const selectedIndex = Number(index);
-
-  if (
-    !Number.isInteger(selectedIndex) ||
-    selectedIndex < 0 ||
-    selectedIndex >= data.length
-  ) {
-    return;
-  }
-
-  onSelectEntry(data[selectedIndex]);
-}}
     >
       <CartesianGrid
-        stroke="currentColor"
-        strokeOpacity={0.08}
+        stroke="#82907D"
+        strokeOpacity={0.13}
         vertical={false}
+        strokeDasharray="3 5"
       />
 
       <XAxis
         dataKey="label"
         axisLine={false}
         tickLine={false}
-        tickMargin={10}
-        interval={0}
+        tickMargin={12}
+        interval={data.length > 10 ? "preserveStartEnd" : 0}
         minTickGap={8}
         tick={{
           fontSize: mobile ? 10 : 11,
-          fill: "var(--muted-foreground)",
+          fill: "#7A8775",
         }}
       />
 
       <YAxis
-        allowDecimals={false}
+        allowDecimals={quantityMode}
+        domain={[0, "auto"]}
+        tickFormatter={(value: number) => new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 }).format(value)}
         axisLine={false}
         tickLine={false}
-        width={36}
+        width={48}
         tick={{
           fontSize: mobile ? 10 : 11,
-          fill: "var(--muted-foreground)",
+          fill: "#7A8775",
         }}
       />
 
       <Tooltip
         cursor={{
-          fill: "var(--muted)",
-          fillOpacity: 0.35,
+          fill: "#8FA58A",
+          fillOpacity: 0.09,
         }}
         labelFormatter={(label, payload) => {
           const entry = payload?.[0]
@@ -317,7 +315,7 @@ function ActivityChart({
         formatter={(value, name) => [
           `${formatter.format(
             Number(value ?? 0)
-          )} transactions`,
+          )} ${unit}`,
           String(name),
         ]}
         wrapperStyle={{
@@ -326,16 +324,17 @@ function ActivityChart({
           zIndex: 10,
         }}
         contentStyle={{
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          backgroundColor: "var(--card)",
-          color: "var(--foreground)",
+          border: "1px solid rgba(255,255,255,0.65)",
+          borderRadius: 16,
+          backgroundColor: "rgba(250,247,240,0.96)",
+          color: "#343B32",
           fontSize: 12,
           boxShadow:
-            "0 8px 24px rgba(0,0,0,0.08)",
+            "0 12px 32px rgba(52,59,50,0.12)",
+          backdropFilter: "blur(16px)",
         }}
         labelStyle={{
-          color: "var(--foreground)",
+          color: "#343B32",
           fontWeight: 600,
         }}
       />
@@ -347,7 +346,7 @@ function ActivityChart({
           name={type.label}
           fill={type.color}
           maxBarSize={maxBarSize}
-          radius={[4, 4, 0, 0]}
+          radius={[6, 6, 0, 0]}
           isAnimationActive={false}
         />
       ))}
@@ -355,243 +354,87 @@ function ActivityChart({
   );
 }
 
-export default function InventoryAnalytics({
-  data,
-  period = 7,
-}: Props) {
-  const [selected, setSelected] =
-    useState<ActivityFilter>("all");
-
-  const [selectedEntry, setSelectedEntry] =
-    useState<ChartEntry | null>(null);
-
-  const filterId = useId();
+export default function InventoryAnalytics({ data, period = 7 }: Props) {
+  const [itemId, setItemId] = useState("all");
   const headingId = useId();
-
-  const {
-    ref: chartContainerRef,
-    width: chartWidth,
-  } = useContainerWidth<HTMLDivElement>();
-
-  const isMobile =
-    chartWidth > 0 && chartWidth < 640;
-
-  const chartData = useMemo(
-    () =>
-      data.daily.map((entry) => ({
-        ...entry,
-        label: formatDate(entry.date),
-      })),
-    [data.daily]
+  const itemSelectId = useId();
+  const { ref: chartContainerRef, width: chartWidth } = useContainerWidth<HTMLDivElement>();
+  const isMobile = chartWidth > 0 && chartWidth < 640;
+  const item = data.itemSeries?.find(entry => entry.item_id === itemId);
+  const unit = item?.unit ?? "transaksi";
+  const daily = item?.daily ?? data.daily;
+  // Longer periods use fewer groups so the chart fits without horizontal scrolling.
+  const weekly = period === 30;
+  const displayedData: ChartEntry[] = weekly
+    ? createWeeklyData(daily)
+    : [...daily]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(entry => ({ ...entry, label: formatDate(entry.date) }));
+  const hasActivity = displayedData.some(entry =>
+    activityTypes.some(type => entry[type.key] > 0)
   );
-
-  const displayedData = useMemo(
-    () =>
-      period === 30
-        ? createWeeklyData(data.daily)
-        : chartData,
-    [data.daily, chartData, period]
-  );
-
-  const total = activityTypes.reduce(
-    (sum, type) =>
-      sum + Number(data.totals[type.key] ?? 0),
-    0
-  );
-
-  const selectedTotal =
-    selected === "all"
-      ? total
-      : Number(data.totals[selected] ?? 0);
-
-  const selectedLabel =
-    selected === "all"
-      ? "Total transactions"
-      : activityTypes.find(
-          (type) => type.key === selected
-        )?.label ?? "Transactions";
-
-  // Resolve the selected entry against the current
-  // dataset so period changes cannot show stale data.
-  const activeEntry = selectedEntry
-    ? displayedData.find(
-        (entry) =>
-          entry.date === selectedEntry.date &&
-          entry.label === selectedEntry.label
-      ) ?? null
-    : null;
-
-  const handleSelectEntry = (entry: ChartEntry) => {
-    setSelectedEntry((previous) => {
-      if (
-        previous?.date === entry.date &&
-        previous?.label === entry.label
-      ) {
-        return null;
-      }
-
-      return entry;
-    });
-  };
 
   return (
     <section
       aria-labelledby={headingId}
-      className="min-w-0 overflow-hidden rounded-xl border bg-card p-3.5 sm:p-5"
+      className="min-w-0 rounded-[24px] border border-white/60 bg-white/55 p-4 shadow-[0_8px_28px_rgba(52,59,50,0.035)] sm:p-5"
     >
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3
-          id={headingId}
-          className="text-sm font-semibold sm:text-base"
-        >
-          Stock activity
-        </h3>
-
-        <label
-          htmlFor={filterId}
-          className="sr-only"
-        >
-          Filter transaction type
-        </label>
-
-        <select
-          id={filterId}
-          value={selected}
-          onChange={(event) => {
-            setSelected(
-              event.target.value as ActivityFilter
-            );
-            setSelectedEntry(null);
-          }}
-          className="min-h-11 max-w-full rounded-md border bg-background px-3 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
-        >
-          <option value="all">
-            All activity
-          </option>
-
-          {activityTypes.map((type) => (
-            <option
-              key={type.key}
-              value={type.key}
-            >
-              {type.label}
-            </option>
-          ))}
-        </select>
+        <div>
+          <h3 id={headingId} className="text-base font-semibold tracking-tight text-[#343b32]">
+            Stock Activity
+          </h3>
+          <p className="mt-1 text-xs text-[#677260]">
+            {period} hari terakhir · {weekly ? "Per 7 hari" : "Harian"}
+          </p>
+        </div>
+        <div className="w-full min-w-0 sm:w-44">
+          <label htmlFor={itemSelectId} className="sr-only">Pilih bahan atau produk</label>
+          <select
+            id={itemSelectId}
+            value={item?.item_id ?? "all"}
+            onChange={event => setItemId(event.target.value)}
+            className="min-h-10 w-full rounded-xl border border-[#8fa58a]/20 bg-white/70 px-3 text-xs text-[#536d50] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#536d50]"
+          >
+            <option value="all">Semua item</option>
+            {(data.itemSeries ?? []).map(entry => (
+              <option key={entry.item_id} value={entry.item_id}>{entry.name} ({entry.unit})</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Activity total */}
-      <div className="mt-3 border-b pb-3">
-        <p className="text-xs text-muted-foreground">
-          {selectedLabel}
-        </p>
-
-        <p className="mt-1 text-2xl font-semibold tabular-nums">
-          {formatter.format(selectedTotal)}
-        </p>
+      <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2" aria-label="Legenda chart">
+        {activityTypes.map(type => (
+          <span key={type.key} className="inline-flex items-center gap-1.5 text-[11px] text-[#5d6857]">
+            <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: type.color }} />
+            {type.label}
+          </span>
+        ))}
       </div>
-
-      {/* Responsive chart */}
-      <div
-        ref={chartContainerRef}
-        className="mt-3 min-h-[220px] w-full min-w-0 overflow-hidden [touch-action:pan-y] sm:min-h-[290px]"
-      >
-        {chartWidth > 0 && displayedData.length > 0 ? (
+      <p className="mt-4 text-[11px] text-[#677260]">
+        {item ? `Kuantitas (${unit})` : "Jumlah transaksi"}
+      </p>
+      <div ref={chartContainerRef} className="mt-1 min-h-[224px] w-full min-w-0 sm:min-h-[292px]">
+        {chartWidth > 0 && hasActivity ? (
           <ActivityChart
             data={displayedData}
-            period={period}
-            selected={selected}
+            weekly={weekly}
+            unit={unit}
+            quantityMode={Boolean(item)}
+            selected="all"
             mobile={isMobile}
             width={chartWidth}
-            onSelectEntry={handleSelectEntry}
           />
         ) : (
-          <div className="flex h-[220px] items-center justify-center text-center text-sm text-muted-foreground sm:h-[290px]">
-            {chartWidth === 0
-              ? "Preparing chart..."
-              : "No activity data available."}
+          <div role="status" className="flex h-[224px] items-center justify-center px-4 text-center text-sm text-[#677260] sm:h-[292px]">
+            {chartWidth === 0 ? "Menyiapkan chart..." : "Belum ada aktivitas dalam periode ini."}
           </div>
         )}
       </div>
-
-      {displayedData.length > 0 && (
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          {period === 30
-            ? "Grouped by week · "
-            : ""}
-          Tap or hover to view details
-        </p>
-      )}
-
-      {/* Persistent details for touch devices */}
-      {activeEntry && (
-        <div
-          className="mt-3 rounded-lg border bg-muted/30 p-3"
-          aria-live="polite"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">
-                Selected activity
-              </p>
-
-              <p className="mt-0.5 text-sm font-semibold">
-                {getEntryLabel(activeEntry)}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setSelectedEntry(null)}
-              className="min-h-10 shrink-0 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="Close selected activity details"
-            >
-              Close
-            </button>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {activityTypes
-              .filter(
-                (type) =>
-                  selected === "all" ||
-                  selected === type.key
-              )
-              .map((type) => (
-                <div
-                  key={type.key}
-                  className="min-w-0 rounded-md border bg-card p-2.5"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      aria-hidden="true"
-                      className="size-2 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor: type.color,
-                      }}
-                    />
-
-                    <p className="truncate text-xs text-muted-foreground">
-                      {type.label}
-                    </p>
-                  </div>
-
-                  <p className="mt-1 text-base font-semibold tabular-nums">
-                    {formatter.format(
-                      Number(activeEntry[type.key] ?? 0)
-                    )}
-                  </p>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {selectedTotal === 0 && total > 0 && (
-        <p className="mt-2 text-center text-xs text-muted-foreground">
-          No {selectedLabel.toLowerCase()} recorded
-          in this period.
+      {hasActivity && (
+        <p className="mt-2 text-center text-[11px] text-[#677260]">
+          Arahkan kursor atau ketuk batang untuk detail.
         </p>
       )}
     </section>

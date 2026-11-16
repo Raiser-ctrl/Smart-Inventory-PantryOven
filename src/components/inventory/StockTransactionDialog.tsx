@@ -6,21 +6,34 @@ import {
   useState,
   type FormEvent,
 } from "react";
+
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+
+import {
+  AlertCircle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Loader2,
+  Package,
+  Plus,
+  Trash2,
+  TrendingDown,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
 import {
   Select,
   SelectContent,
@@ -79,6 +92,46 @@ const stockFormatter = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 6,
 });
 
+const inputClassName = [
+  "h-11 rounded-xl",
+  "border-[#8FA58A]/20",
+  "bg-white/70",
+  "text-[#343B32]",
+  "placeholder:text-[#7A8775]/65",
+  "focus-visible:border-[#8FA58A]",
+  "focus-visible:ring-[#8FA58A]/25",
+].join(" ");
+
+const labelClassName =
+  "text-xs font-semibold text-[#536D50]";
+
+const transactionOptions = [
+  {
+    value: "stock_in" as const,
+    label: "Stock in",
+    description: "Add stock",
+    icon: ArrowDownToLine,
+  },
+  {
+    value: "stock_out" as const,
+    label: "Stock out",
+    description: "Remove stock",
+    icon: ArrowUpFromLine,
+  },
+  {
+    value: "usage" as const,
+    label: "Usage",
+    description: "Used in production",
+    icon: TrendingDown,
+  },
+  {
+    value: "waste" as const,
+    label: "Waste",
+    description: "Damaged or wasted",
+    icon: Trash2,
+  },
+];
+
 export default function StockTransactionDialog({
   items,
 }: Props) {
@@ -96,11 +149,10 @@ export default function StockTransactionDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Prevent simultaneous submissions synchronously.
+  // Prevent simultaneous submissions.
   const submittingRef = useRef(false);
 
-  // Reuse the same UUID when retrying
-  // an identical logical transaction.
+  // Preserve the key for uncertain retries.
   const pendingRequestRef =
     useRef<PendingRequest | null>(null);
 
@@ -128,6 +180,12 @@ export default function StockTransactionDialog({
       ? currentStock + previewQuantity
       : currentStock - previewQuantity;
 
+  const insufficientStock =
+    selectedItem !== undefined &&
+    transactionType !== "stock_in" &&
+    validPreviewQuantity &&
+    numericQuantity > currentStock;
+
   function clearPendingRequest() {
     pendingRequestRef.current = null;
   }
@@ -138,13 +196,13 @@ export default function StockTransactionDialog({
     setQuantity("");
     setNotes("");
     setError("");
+
     clearPendingRequest();
   }
 
   function handleFieldChange(update: () => void) {
     if (submittingRef.current) return;
 
-    // Changing any field creates a new logical request.
     clearPendingRequest();
     setError("");
     update();
@@ -156,8 +214,8 @@ export default function StockTransactionDialog({
     setOpen(nextOpen);
 
     if (!nextOpen) {
-      // Preserve the draft and key when a previous
-      // request has an uncertain outcome.
+      // Preserve the draft when the outcome
+      // of a previous request is uncertain.
       if (pendingRequestRef.current) {
         return;
       }
@@ -229,10 +287,12 @@ export default function StockTransactionDialog({
 
     if (!payload) return;
 
-    const serializedPayload = JSON.stringify(payload);
-    const previousRequest = pendingRequestRef.current;
+    const serializedPayload =
+      JSON.stringify(payload);
 
-    // An identical retry must reuse its UUID.
+    const previousRequest =
+      pendingRequestRef.current;
+
     const idempotencyKey =
       previousRequest?.payload === serializedPayload
         ? previousRequest.key
@@ -270,8 +330,6 @@ export default function StockTransactionDialog({
         !response.ok ||
         result?.success !== true
       ) {
-        // A definite validation/conflict failure
-        // should not reuse the previous request.
         if (
           [400, 409, 415, 422].includes(
             response.status
@@ -286,14 +344,11 @@ export default function StockTransactionDialog({
         );
       }
 
-      // Server confirmed creation or idempotent replay.
-      // Notify AI components that inventory data changed.
       notifyInventoryUpdated(payload.item_id);
 
       resetForm();
       setOpen(false);
 
-      // Refresh server-rendered inventory data.
       router.refresh();
     } catch (caughtError) {
       setError(
@@ -312,32 +367,79 @@ export default function StockTransactionDialog({
       open={open}
       onOpenChange={handleOpenChange}
     >
+      {/* Trigger */}
       <DialogTrigger asChild>
-        <Button type="button">
-          + Catat Transaksi
+        <Button
+          type="button"
+          variant="outline"
+          className={[
+            "h-10 rounded-xl px-4",
+            "border-[#8FA58A]/25",
+            "bg-white/65",
+            "text-[#536D50]",
+            "transition-colors",
+            "hover:bg-white/90",
+            "hover:text-[#343B32]",
+          ].join(" ")}
+        >
+          <Plus
+            aria-hidden="true"
+            className="mr-1.5 size-4"
+          />
+
+          Transaction
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>
-            Catat Transaksi Stok
-          </DialogTitle>
+      {/* Dialog */}
+      <DialogContent
+        className={[
+          "w-[calc(100%-2rem)]",
+          "max-h-[min(90dvh,800px)]",
+          "overflow-y-auto",
+          "rounded-[26px]",
+          "border border-white/60",
+          "bg-[#FAF7F0]/95",
+          "p-0",
+          "shadow-[0_24px_70px_rgba(52,59,50,0.16)]",
+          "backdrop-blur-2xl",
+          "sm:max-w-[480px]",
+        ].join(" ")}
+      >
+        {/* Header */}
+        <DialogHeader className="border-b border-[#8FA58A]/15 px-5 pb-4 pt-6 text-left sm:px-6">
+          <div className="flex items-start gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#8FA58A]/15 text-[#536D50]">
+              <Package
+                aria-hidden="true"
+                className="size-5"
+              />
+            </span>
 
-          <DialogDescription>
-            Catat stok masuk, stok keluar,
-            penggunaan, atau bahan terbuang.
-          </DialogDescription>
+            <div className="min-w-0">
+              <DialogTitle className="text-lg font-semibold tracking-tight text-[#343B32]">
+                Stock transaction
+              </DialogTitle>
+
+              <DialogDescription className="mt-1 text-xs leading-relaxed text-[#7A8775]">
+                Record stock movements for your bakery.
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
+        {/* Form */}
         <form
           onSubmit={handleSubmit}
-          className="space-y-4"
+          className="space-y-5 px-5 py-5 sm:px-6"
         >
           {/* Item */}
           <div className="space-y-2">
-            <Label htmlFor="transaction-item">
-              Barang
+            <Label
+              htmlFor="transaction-item"
+              className={labelClassName}
+            >
+              Item
             </Label>
 
             <Select
@@ -351,9 +453,9 @@ export default function StockTransactionDialog({
             >
               <SelectTrigger
                 id="transaction-item"
-                className="w-full"
+                className="h-11 w-full rounded-xl border-[#8FA58A]/20 bg-white/70 text-[#343B32]"
               >
-                <SelectValue placeholder="Pilih barang" />
+                <SelectValue placeholder="Select an item" />
               </SelectTrigger>
 
               <SelectContent>
@@ -369,54 +471,76 @@ export default function StockTransactionDialog({
             </Select>
           </div>
 
-          {/* Transaction Type */}
+          {/* Transaction type */}
           <div className="space-y-2">
-            <Label htmlFor="transaction-type">
-              Jenis Transaksi
+            <Label className={labelClassName}>
+              Transaction type
             </Label>
 
-            <Select
-              value={transactionType}
-              onValueChange={(value) =>
-                handleFieldChange(() =>
-                  setTransactionType(
-                    value as TransactionType
-                  )
-                )
-              }
-              disabled={loading}
+            <div
+              role="group"
+              aria-label="Transaction type"
+              className="grid grid-cols-2 gap-2"
             >
-              <SelectTrigger
-                id="transaction-type"
-                className="w-full"
-              >
-                <SelectValue />
-              </SelectTrigger>
+              {transactionOptions.map((option) => {
+                const Icon = option.icon;
 
-              <SelectContent>
-                <SelectItem value="stock_in">
-                  Stock In
-                </SelectItem>
+                const selected =
+                  transactionType === option.value;
 
-                <SelectItem value="stock_out">
-                  Stock Out
-                </SelectItem>
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={selected}
+                    disabled={loading}
+                    onClick={() =>
+                      handleFieldChange(() =>
+                        setTransactionType(
+                          option.value
+                        )
+                      )
+                    }
+                    className={[
+                      "flex min-w-0 items-center gap-2",
+                      "rounded-xl border p-3",
+                      "text-left transition-colors",
+                      "focus-visible:outline-2",
+                      "focus-visible:outline-offset-2",
+                      "focus-visible:outline-[#8FA58A]",
+                      "disabled:opacity-50",
+                      selected
+                        ? "border-[#8FA58A]/50 bg-[#8FA58A]/15 text-[#536D50]"
+                        : "border-[#8FA58A]/15 bg-white/55 text-[#7A8775] hover:bg-white/80",
+                    ].join(" ")}
+                  >
+                    <Icon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
 
-                <SelectItem value="usage">
-                  Usage
-                </SelectItem>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-semibold">
+                        {option.label}
+                      </span>
 
-                <SelectItem value="waste">
-                  Waste
-                </SelectItem>
-              </SelectContent>
-            </Select>
+                      <span className="mt-0.5 block text-[10px] leading-tight opacity-75">
+                        {option.description}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Quantity */}
           <div className="space-y-2">
-            <Label htmlFor="transaction-quantity">
-              Jumlah
+            <Label
+              htmlFor="transaction-quantity"
+              className={labelClassName}
+            >
+              Quantity
               {selectedItem
                 ? ` (${selectedItem.unit})`
                 : ""}
@@ -428,7 +552,8 @@ export default function StockTransactionDialog({
               min="0"
               max={MAX_QUANTITY}
               step="any"
-              placeholder="Contoh: 5"
+              inputMode="decimal"
+              placeholder="e.g. 5"
               value={quantity}
               onChange={(event) =>
                 handleFieldChange(() =>
@@ -437,18 +562,73 @@ export default function StockTransactionDialog({
               }
               disabled={loading}
               required
+              className={inputClassName}
             />
           </div>
 
+          {/* Stock preview */}
+          {selectedItem && (
+            <div className="rounded-2xl border border-[#8FA58A]/15 bg-[#8FA58A]/8 p-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-[#7A8775]">
+                  Current stock
+                </span>
+
+                <span className="text-xs font-medium tabular-nums text-[#343B32]">
+                  {stockFormatter.format(
+                    currentStock
+                  )}{" "}
+                  {selectedItem.unit}
+                </span>
+              </div>
+
+              <div className="my-2.5 h-px bg-[#8FA58A]/15" />
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-[#536D50]">
+                  Estimated stock
+                </span>
+
+                <span
+                  className={`text-sm font-semibold tabular-nums ${
+                    insufficientStock
+                      ? "text-[#B76F67]"
+                      : "text-[#536D50]"
+                  }`}
+                >
+                  {stockFormatter.format(
+                    estimatedStock
+                  )}{" "}
+                  {selectedItem.unit}
+                </span>
+              </div>
+
+              {insufficientStock && (
+                <p className="mt-2 text-[11px] text-[#B76F67]">
+                  Quantity exceeds available stock.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Notes */}
           <div className="space-y-2">
-            <Label htmlFor="transaction-notes">
-              Catatan (Opsional)
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label
+                htmlFor="transaction-notes"
+                className={labelClassName}
+              >
+                Notes
+              </Label>
+
+              <span className="text-[11px] text-[#7A8775]">
+                Optional
+              </span>
+            </div>
 
             <textarea
               id="transaction-notes"
-              rows={3}
+              rows={2}
               maxLength={MAX_NOTES_LENGTH}
               value={notes}
               onChange={(event) =>
@@ -457,73 +637,68 @@ export default function StockTransactionDialog({
                 )
               }
               disabled={loading}
-              placeholder="Contoh: Restock dari supplier"
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="e.g. Restock from supplier"
+              className={[
+                "w-full resize-none rounded-xl",
+                "border border-[#8FA58A]/20",
+                "bg-white/70 px-3 py-2.5",
+                "text-sm text-[#343B32]",
+                "placeholder:text-[#7A8775]/65",
+                "outline-none",
+                "focus-visible:ring-2",
+                "focus-visible:ring-[#8FA58A]/25",
+                "disabled:opacity-50",
+              ].join(" ")}
             />
           </div>
 
-          {/* Stock Preview */}
-          {selectedItem && (
-            <div className="space-y-2 rounded-lg border p-3 text-sm">
-              <div className="flex justify-between gap-3">
-                <span>Stok saat ini</span>
+          {/* Error */}
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-[#C9857C]/20 bg-[#C9857C]/10 p-3"
+            >
+              <AlertCircle
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-[#B76F67]"
+              />
 
-                <strong className="tabular-nums">
-                  {stockFormatter.format(
-                    currentStock
-                  )}{" "}
-                  {selectedItem.unit}
-                </strong>
-              </div>
-
-              <div className="flex justify-between gap-3">
-                <span>Perkiraan stok akhir</span>
-
-                <strong
-                  className={`tabular-nums ${
-                    estimatedStock < 0
-                      ? "text-destructive"
-                      : ""
-                  }`}
-                >
-                  {stockFormatter.format(
-                    estimatedStock
-                  )}{" "}
-                  {selectedItem.unit}
-                </strong>
-              </div>
+              <p className="text-xs leading-relaxed text-[#A65C55]">
+                {error}
+              </p>
             </div>
           )}
 
-          {/* Error */}
-          {error && (
-            <p
-              role="alert"
-              className="text-sm text-destructive"
-            >
-              {error}
-            </p>
-          )}
-
           {/* Submit */}
-          <DialogFooter>
+          <div className="border-t border-[#8FA58A]/15 pt-4">
             <Button
               type="submit"
               disabled={
                 loading ||
                 items.length === 0
               }
+              className={[
+                "h-11 w-full rounded-xl",
+                "bg-[#536D50] text-white",
+                "font-semibold",
+                "transition-colors",
+                "hover:bg-[#435A40]",
+                "disabled:opacity-60",
+              ].join(" ")}
             >
               {loading ? (
                 <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  Menyimpan...
+                  <Loader2
+                    aria-hidden="true"
+                    className="mr-2 size-4 animate-spin"
+                  />
+                  Saving transaction...
                 </>
               ) : (
-                "Simpan Transaksi"
+                "Save transaction"
               )}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

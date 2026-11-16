@@ -124,11 +124,11 @@ export function ProfileForm({
   return (
     <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)] lg:items-start lg:gap-6">
       {/* Account identity */}
-      <section className="min-w-0 overflow-hidden rounded-2xl border bg-card">
-        <div className="h-20 bg-gradient-to-r from-[#e7eee2] via-[#f0f4ed] to-[#f8faf6] dark:from-[#283427] dark:via-[#222d22] dark:to-background" />
+      <section className="min-w-0 overflow-hidden rounded-[26px] border border-white/65 bg-white/55 shadow-[0_10px_36px_rgba(52,59,50,0.06)] backdrop-blur-xl dark:border-border dark:bg-card">
+        <div className="h-14 bg-gradient-to-r from-[#D5E2CF] via-[#E7EEE2] to-[#F8F6EF] lg:h-20 dark:from-[#283427] dark:via-[#222d22] dark:to-background" />
 
-        <div className="-mt-9 px-5 pb-5">
-          <div className="flex size-[72px] items-center justify-center rounded-2xl border-4 border-card bg-[#edf2e9] text-xl font-bold text-[#526b47] shadow-sm">
+        <div className="-mt-7 flex items-center gap-3 px-4 pb-4 lg:-mt-9 lg:block lg:px-5 lg:pb-5">
+          <div className="flex size-14 shrink-0 items-center lg:size-[72px] justify-center rounded-2xl border-4 border-card bg-[#edf2e9] text-xl font-bold text-[#526b47] shadow-sm">
             {initials || (
               <UserRound
                 aria-hidden="true"
@@ -137,8 +137,8 @@ export function ProfileForm({
             )}
           </div>
 
-          <div className="mt-4 min-w-0">
-            <h2 className="break-words text-lg font-semibold tracking-tight">
+          <div className="min-w-0 lg:mt-4">
+            <h2 className="break-words [overflow-wrap:anywhere] text-lg font-semibold tracking-tight">
               {savedName || "Pengguna PantryOven"}
             </h2>
 
@@ -154,10 +154,10 @@ export function ProfileForm({
       </section>
 
       {/* Personal information */}
-      <section className="min-w-0 overflow-hidden rounded-2xl border bg-card">
-        <div className="border-b px-4 py-5 sm:px-6">
+      <section className="min-w-0 overflow-hidden rounded-[26px] border border-white/65 bg-white/55 shadow-[0_10px_36px_rgba(52,59,50,0.06)] backdrop-blur-xl dark:border-border dark:bg-card">
+        <div className="border-b border-[#8FA58A]/15 px-4 py-4 sm:px-6">
           <h2 className="text-base font-semibold tracking-tight sm:text-lg">
-            Personal Information
+            Informasi profil
           </h2>
 
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -173,13 +173,13 @@ export function ProfileForm({
                   htmlFor="profile-full-name"
                   className="text-sm font-medium"
                 >
-                  Full Name
+                  Nama lengkap
                 </label>
 
                 {hasChanges && (
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
                     <span className="size-1.5 rounded-full bg-current" />
-                    Unsaved changes
+                    Belum disimpan
                   </span>
                 )}
               </div>
@@ -198,7 +198,7 @@ export function ProfileForm({
                 disabled={saving}
                 aria-invalid={fullName.length > 0 && !isValid}
                 aria-describedby="profile-name-help"
-                className="h-11 rounded-xl"
+                className="h-11 rounded-xl border-[#8FA58A]/30 bg-white/80 text-base focus-visible:ring-[#8FA58A]/45 sm:text-sm dark:border-input dark:bg-input/30"
               />
 
               <p
@@ -238,34 +238,26 @@ export function ProfileForm({
           </div>
 
           {/* Form actions */}
-          <div className="flex flex-col-reverse gap-2 border-t bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Check
-                aria-hidden="true"
-                className="size-3.5 text-[#687c59]"
-              />
-              Informasi tersimpan dengan aman
-            </div>
-
-            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <div className="border-t border-[#8FA58A]/15 bg-[#F8F6EF]/65 px-4 py-4 dark:bg-muted/20 sm:px-6">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
                 disabled={!hasChanges || saving}
                 onClick={handleReset}
-                className="h-10 w-full gap-2 rounded-xl sm:w-auto"
+                className="min-h-11 w-full gap-2 rounded-xl sm:w-auto"
               >
                 <RotateCcw
                   aria-hidden="true"
                   className="size-4"
                 />
-                Reset
+                Batalkan perubahan
               </Button>
 
               <Button
                 type="submit"
                 disabled={!hasChanges || !isValid || saving}
-                className="h-10 w-full gap-2 rounded-xl bg-[#687c59] text-white hover:bg-[#56694a] sm:w-auto"
+                className="min-h-11 w-full gap-2 rounded-xl bg-[#536D50] text-white hover:bg-[#435940] sm:w-auto"
               >
                 {saving ? (
                   <Loader2
@@ -278,7 +270,7 @@ export function ProfileForm({
                     className="size-4"
                   />
                 )}
-                {saving ? "Saving..." : "Save Changes"}
+                {saving ? "Menyimpan..." : "Simpan perubahan"}
               </Button>
             </div>
           </div>

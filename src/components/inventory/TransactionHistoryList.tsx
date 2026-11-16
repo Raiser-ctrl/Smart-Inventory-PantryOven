@@ -166,7 +166,7 @@ function TransactionNotes({
 
   if (!notes?.trim()) {
     return (
-      <span className="text-muted-foreground">
+      <span className="text-[#5F705B]">
         —
       </span>
     );
@@ -247,10 +247,10 @@ function EmptyState({
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-4 py-14 text-center">
-      <div className="flex size-12 items-center justify-center rounded-xl bg-muted">
+      <div className="flex size-12 items-center justify-center rounded-xl bg-[#8FA58A]/15">
         <Package
           aria-hidden="true"
-          className="size-5 text-muted-foreground"
+          className="size-5 text-[#5F705B]"
         />
       </div>
 
@@ -259,7 +259,7 @@ function EmptyState({
           {title}
         </p>
 
-        <p className="max-w-sm text-sm text-muted-foreground">
+        <p className="max-w-sm text-sm text-[#5F705B]">
           {message}
         </p>
       </div>
@@ -287,7 +287,7 @@ export default function TransactionHistoryList({
       <div className="hidden min-w-0 max-w-full overflow-x-auto md:block">
         <Table className="min-w-[760px]">
           <TableHeader>
-            <TableRow className="bg-muted/30 hover:bg-muted/30">
+            <TableRow className="border-[#8FA58A]/15 bg-[#F8F6EF]/65 hover:bg-[#F8F6EF]/65">
               <TableHead className="w-[24%]">
                 Item
               </TableHead>
@@ -310,15 +310,15 @@ export default function TransactionHistoryList({
             {history.map((transaction) => (
               <TableRow
                 key={transaction.id}
-                className="align-top"
+                className="border-[#8FA58A]/15 align-top hover:bg-white/50"
               >
                 {/* Item */}
                 <TableCell>
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#8FA58A]/15 bg-[#8FA58A]/15">
                       <Package
                         aria-hidden="true"
-                        className="size-4 text-muted-foreground"
+                        className="size-4 text-[#5F705B]"
                       />
                     </div>
 
@@ -331,7 +331,7 @@ export default function TransactionHistoryList({
                         status === "all" && (
                           <Badge
                             variant="outline"
-                            className="text-[10px] text-muted-foreground"
+                            className="text-[10px] text-[#5F705B]"
                           >
                             Archived
                           </Badge>
@@ -357,14 +357,14 @@ export default function TransactionHistoryList({
                 </TableCell>
 
                 {/* Notes */}
-                <TableCell className="max-w-[260px] text-sm text-muted-foreground">
+                <TableCell className="max-w-[260px] text-sm text-[#5F705B]">
                   <TransactionNotes
                     notes={transaction.notes}
                   />
                 </TableCell>
 
                 {/* Date */}
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                <TableCell className="whitespace-nowrap text-xs text-[#5F705B]">
                   {formatTransactionDate(
                     transaction.created_at
                   )}
@@ -380,15 +380,15 @@ export default function TransactionHistoryList({
         {history.map((transaction) => (
           <article
             key={transaction.id}
-            className="min-w-0 rounded-xl border bg-card p-3.5"
+            className="min-w-0 rounded-2xl border border-[#8FA58A]/20 bg-white/65 p-3.5"
           >
             {/* Item and type */}
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#8FA58A]/15">
                   <Package
                     aria-hidden="true"
-                    className="size-4 text-muted-foreground"
+                    className="size-4 text-[#5F705B]"
                   />
                 </div>
 
@@ -397,7 +397,7 @@ export default function TransactionHistoryList({
                     {transaction.itemName}
                   </p>
 
-                  <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                  <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-[#5F705B]">
                     <CalendarDays
                       aria-hidden="true"
                       className="size-3 shrink-0"
@@ -425,7 +425,7 @@ export default function TransactionHistoryList({
                 <div className="mt-2">
                   <Badge
                     variant="outline"
-                    className="text-[10px] text-muted-foreground"
+                    className="text-[10px] text-[#5F705B]"
                   >
                     Archived
                   </Badge>
@@ -433,8 +433,8 @@ export default function TransactionHistoryList({
               )}
 
             {/* Quantity */}
-            <div className="mt-3 flex min-w-0 items-start justify-between gap-3 border-t pt-3">
-              <span className="shrink-0 text-xs text-muted-foreground">
+            <div className="mt-3 flex min-w-0 items-start justify-between gap-3 border-t border-[#8FA58A]/15 pt-3">
+              <span className="shrink-0 text-xs text-[#5F705B]">
                 Quantity
               </span>
 
@@ -447,7 +447,7 @@ export default function TransactionHistoryList({
 
             {/* Notes */}
             <div className="mt-3 min-w-0 space-y-1">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[#5F705B]">
                 Notes
               </p>
 

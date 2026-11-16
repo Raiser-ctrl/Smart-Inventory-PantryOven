@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, type FormEvent } from "react";
@@ -191,7 +190,8 @@ export default function RegisterPage() {
 
   return (
     <AuthShell
-      title={registered ? "Almost there!" : "Let's get started!"}
+      illustration="register"
+      title={registered ? "Pendaftaran selesai" : "Buat akun PantryOven"}
       description={
         registered
           ? "Pendaftaran kamu sudah diproses. Selesaikan langkah berikutnya untuk mulai menggunakan PantryOven."
@@ -208,25 +208,25 @@ export default function RegisterPage() {
             />
           </div>
 
-          <div className="rounded-2xl border border-[#e8dfd4] bg-[#fdfbf8] p-5">
-            <h2 className="font-semibold text-[#463a30]">
+          <div className="rounded-2xl border border-[#DCE5D5] bg-[#F8F6EF] p-5">
+            <h2 className="font-semibold text-[#343B32]">
               Permintaan pendaftaran diterima
             </h2>
 
-            <p className="mt-2 text-sm leading-7 text-[#796e61]">
+            <p className="mt-2 text-sm leading-7 text-[#5F705B]">
               Jika email verifikasi dikirim, periksa inbox
               atau folder spam dan selesaikan verifikasi
               terlebih dahulu.
             </p>
 
-            <p className="mt-3 text-sm leading-7 text-[#796e61]">
+            <p className="mt-3 text-sm leading-7 text-[#5F705B]">
               Setelah login, akun baru akan menunggu
               persetujuan administrator sebelum dapat
               mengakses Dashboard.
             </p>
           </div>
 
-          <Button asChild className="po-button w-full">
+          <Button asChild className="po-button min-h-11 w-full">
             <Link href="/login">
               Kembali ke Login
               <ArrowRight
@@ -246,7 +246,7 @@ export default function RegisterPage() {
           <div className="space-y-2">
             <Label
               htmlFor="fullName"
-              className="text-[#594c40]"
+              className="text-[#343B32]"
             >
               Nama lengkap
             </Label>
@@ -254,7 +254,7 @@ export default function RegisterPage() {
             <div className="relative">
               <UserRound
                 aria-hidden="true"
-                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
               />
 
               <Input
@@ -276,7 +276,7 @@ export default function RegisterPage() {
                     ? "register-name-error"
                     : undefined
                 }
-                className="po-input pl-11"
+                className="po-input min-h-11 pl-11"
               />
             </div>
 
@@ -293,14 +293,14 @@ export default function RegisterPage() {
 
           {/* Email */}
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-[#594c40]">
+            <Label htmlFor="email" className="text-[#343B32]">
               Email
             </Label>
 
             <div className="relative">
               <Mail
                 aria-hidden="true"
-                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
               />
 
               <Input
@@ -325,7 +325,7 @@ export default function RegisterPage() {
                     ? "register-email-error"
                     : undefined
                 }
-                className="po-input pl-11"
+                className="po-input min-h-11 pl-11"
               />
             </div>
 
@@ -342,14 +342,14 @@ export default function RegisterPage() {
 
           {/* Password */}
           <div className="space-y-2">
-            <Label htmlFor="password" className="text-[#594c40]">
+            <Label htmlFor="password" className="text-[#343B32]">
               Password
             </Label>
 
             <div className="relative">
               <LockKeyhole
                 aria-hidden="true"
-                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
               />
 
               <Input
@@ -371,7 +371,7 @@ export default function RegisterPage() {
                     ? "register-password-error"
                     : undefined
                 }
-                className="po-input pl-11 pr-12"
+                className="po-input min-h-11 pl-11 pr-12"
               />
 
               <button
@@ -386,7 +386,7 @@ export default function RegisterPage() {
                     : "Tampilkan password"
                 }
                 aria-pressed={showPassword}
-                className="absolute right-0 top-0 flex size-12 items-center justify-center rounded-r-2xl text-[#938574] transition-colors hover:text-[#463a30] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#778766] disabled:opacity-50"
+                className="absolute right-0 top-0 flex size-12 items-center justify-center rounded-r-2xl text-[#5F705B] transition-colors hover:text-[#343B32] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#536D50] disabled:opacity-50"
               >
                 {showPassword ? (
                   <EyeOff
@@ -417,7 +417,7 @@ export default function RegisterPage() {
           <div className="space-y-2">
             <Label
               htmlFor="confirmPassword"
-              className="text-[#594c40]"
+              className="text-[#343B32]"
             >
               Konfirmasi password
             </Label>
@@ -425,7 +425,7 @@ export default function RegisterPage() {
             <div className="relative">
               <LockKeyhole
                 aria-hidden="true"
-                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
               />
 
               <Input
@@ -450,7 +450,7 @@ export default function RegisterPage() {
                     ? "register-confirm-error"
                     : undefined
                 }
-                className="po-input pl-11 pr-12"
+                className="po-input min-h-11 pl-11 pr-12"
               />
 
               <button
@@ -467,7 +467,7 @@ export default function RegisterPage() {
                     : "Tampilkan konfirmasi password"
                 }
                 aria-pressed={showConfirmPassword}
-                className="absolute right-0 top-0 flex size-12 items-center justify-center rounded-r-2xl text-[#938574] transition-colors hover:text-[#463a30] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#778766] disabled:opacity-50"
+                className="absolute right-0 top-0 flex size-12 items-center justify-center rounded-r-2xl text-[#5F705B] transition-colors hover:text-[#343B32] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#536D50] disabled:opacity-50"
               >
                 {showConfirmPassword ? (
                   <EyeOff
@@ -495,7 +495,7 @@ export default function RegisterPage() {
           </div>
 
           {/* Account approval information */}
-          <p className="text-xs leading-5 text-[#8a7b6b]">
+          <p className="text-xs leading-5 text-[#5F705B]">
             Akun baru akan berstatus Staff Pending
             sampai disetujui administrator.
           </p>
@@ -515,7 +515,7 @@ export default function RegisterPage() {
           <Button
             type="submit"
             disabled={loading}
-            className="po-button mt-2 w-full font-semibold"
+            className="po-button min-h-11 mt-2 w-full font-semibold"
           >
             {loading ? (
               <>
@@ -537,11 +537,11 @@ export default function RegisterPage() {
           </Button>
 
           {/* Login link */}
-          <p className="pt-2 text-center text-sm text-[#8a7b6b]">
+          <p className="pt-2 text-center text-sm text-[#5F705B]">
             Sudah punya akun?{" "}
             <Link
               href="/login"
-              className="font-bold text-[#617451] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#778766]"
+              className="font-bold text-[#536D50] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#536D50]"
             >
               Masuk sekarang
             </Link>

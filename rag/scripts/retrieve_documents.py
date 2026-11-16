@@ -6,6 +6,8 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 
 from pathlib import Path
 import sys
+from threading import Lock
+from time import perf_counter
 
 import chromadb
 from sentence_transformers import SentenceTransformer
@@ -20,6 +22,25 @@ MODEL_NAME = (
     "sentence-transformers/"
     "paraphrase-multilingual-MiniLM-L12-v2"
 )
+
+
+_embedding_model: SentenceTransformer | None = None
+_model_lock = Lock()
+
+
+def _get_embedding_model() -> SentenceTransformer:
+    global _embedding_model
+
+    with _model_lock:
+        if _embedding_model is None:
+            started = perf_counter()
+            _embedding_model = SentenceTransformer(
+                MODEL_NAME,
+                local_files_only=True,
+            )
+            print(f"[RAG] Embedding model loaded in {perf_counter() - started:.2f}s")
+
+        return _embedding_model
 
 
 def retrieve_documents(query: str, top_k: int = 3):
@@ -39,13 +60,11 @@ def retrieve_documents(query: str, top_k: int = 3):
             "Jalankan indexing terlebih dahulu."
         )
 
-    # Memuat embedding model dari cache lokal.
-    model = SentenceTransformer(
-        MODEL_NAME,
-        local_files_only=True,
-    )
+    started = perf_counter()
+    model = _get_embedding_model()
+    model_seconds = perf_counter() - started
 
-    # Menghubungkan ke vector database lokal.
+    started = perf_counter()
     client = chromadb.PersistentClient(
         path=str(CHROMA_DIR)
     )
@@ -55,18 +74,23 @@ def retrieve_documents(query: str, top_k: int = 3):
     )
 
     total_documents = collection.count()
+    collection_seconds = perf_counter() - started
 
     if total_documents == 0:
         return []
 
     # Mengubah pertanyaan menjadi embedding.
+    started = perf_counter()
     query_embedding = model.encode(
         [query],
         normalize_embeddings=True,
         show_progress_bar=False,
     ).tolist()
 
+    embedding_seconds = perf_counter() - started
+
     # Mencari dokumen berdasarkan cosine distance.
+    started = perf_counter()
     results = collection.query(
         query_embeddings=query_embedding,
         n_results=min(top_k, total_documents),
@@ -75,6 +99,13 @@ def retrieve_documents(query: str, top_k: int = 3):
             "metadatas",
             "distances",
         ],
+    )
+
+    search_seconds = perf_counter() - started
+    print(
+        f"[RAG] Retrieval timing | model={model_seconds:.3f}s "
+        f"collection={collection_seconds:.3f}s "
+        f"embedding={embedding_seconds:.3f}s search={search_seconds:.3f}s"
     )
 
     # Validasi hasil query agar aman dari nilai None.

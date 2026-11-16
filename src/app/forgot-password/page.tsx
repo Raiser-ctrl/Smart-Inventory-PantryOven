@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -133,6 +132,7 @@ function ForgotPasswordContent() {
 
   return (
     <AuthShell
+      illustration="forgot"
       title={
         sent
           ? "Periksa email kamu!"
@@ -149,17 +149,17 @@ function ForgotPasswordContent() {
           <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-[#e8efe2]">
             <CheckCircle2
               aria-hidden="true"
-              className="size-7 text-[#617451]"
+              className="size-7 text-[#536D50]"
             />
           </div>
 
-          <p className="text-sm leading-6 text-[#8a7b6b]">
+          <p className="text-sm leading-6 text-[#5F705B]">
             Jika alamat email terdaftar, periksa
             inbox atau folder spam untuk menemukan
             tautan reset password.
           </p>
 
-          <p className="text-xs leading-5 text-[#938574]">
+          <p className="text-xs leading-5 text-[#5F705B]">
             Buka link terbaru menggunakan browser
             dan profil yang sama dengan tempat
             kamu meminta reset password.
@@ -167,7 +167,7 @@ function ForgotPasswordContent() {
 
           <Button
             asChild
-            className="po-button w-full font-semibold"
+            className="po-button min-h-11 w-full font-semibold"
           >
             <Link href="/login">
               <ArrowLeft className="mr-2 size-4" />
@@ -186,7 +186,7 @@ function ForgotPasswordContent() {
           <div className="space-y-2">
             <Label
               htmlFor="forgot-email"
-              className="text-[#594c40]"
+              className="text-[#343B32]"
             >
               Email
             </Label>
@@ -194,7 +194,7 @@ function ForgotPasswordContent() {
             <div className="relative">
               <Mail
                 aria-hidden="true"
-                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#a49788]"
+                className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#687B61]"
               />
 
               <Input
@@ -220,7 +220,7 @@ function ForgotPasswordContent() {
                   setEmail(event.target.value);
                   setErrorMessage("");
                 }}
-                className="po-input pl-11"
+                className="po-input min-h-11 pl-11"
               />
             </div>
           </div>
@@ -238,7 +238,7 @@ function ForgotPasswordContent() {
           <Button
             type="submit"
             disabled={loading}
-            className="po-button w-full font-semibold"
+            className="po-button min-h-11 w-full font-semibold"
           >
             {loading ? (
               <>
@@ -262,7 +262,7 @@ function ForgotPasswordContent() {
           <div className="pt-2 text-center">
             <Link
               href="/login"
-              className="inline-flex items-center gap-2 rounded-sm text-sm font-semibold text-[#617451] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#778766]"
+              className="inline-flex items-center gap-2 rounded-sm text-sm font-semibold text-[#536D50] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#536D50]"
             >
               <ArrowLeft className="size-4" />
               Kembali ke Login
@@ -279,6 +279,7 @@ export default function ForgotPasswordPage() {
     <Suspense
       fallback={
         <AuthShell
+          illustration="forgot"
           title="Lupa password?"
           description="Masukkan email akun PantryOven untuk menerima tautan reset password."
         >
@@ -288,7 +289,7 @@ export default function ForgotPasswordPage() {
           >
             <Loader2
               aria-hidden="true"
-              className="size-6 animate-spin text-[#617451]"
+              className="size-6 animate-spin text-[#536D50]"
             />
             <span className="sr-only">
               Memuat halaman...

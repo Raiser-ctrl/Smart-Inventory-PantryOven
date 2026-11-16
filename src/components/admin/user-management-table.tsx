@@ -155,11 +155,11 @@ function UserActions({
 }) {
   const isSelf = user.id === currentUserId;
   const isLastAdmin = user.role === "admin" && activeAdminCount <= 1;
-  const buttonClass = mobile ? "h-9 flex-1" : "h-8";
+  const buttonClass = mobile ? "min-h-11 flex-1 rounded-xl" : "h-8 rounded-xl";
 
   if (isSelf) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 text-xs text-[#5F705B]">
         <ShieldCheck aria-hidden="true" className="size-3.5" />
         Akun Anda (Protected)
       </span>
@@ -170,7 +170,7 @@ function UserActions({
     return (
       <div className={mobile ? "flex w-full flex-col gap-2" : "flex items-center gap-2"}>
         {isLastAdmin ? (
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 text-xs text-[#5F705B]">
             <ShieldCheck aria-hidden="true" className="size-3.5" />
             Admin terakhir (Protected)
           </span>
@@ -181,7 +181,7 @@ function UserActions({
             variant="outline"
             disabled={saving || user.status !== "active"}
             onClick={() => onRoleAction(user, "staff")}
-            className={mobile ? "h-9 w-full" : "h-8"}
+            className={mobile ? "min-h-11 w-full rounded-xl" : "h-8 rounded-xl"}
           >
             Demote to Staff
           </Button>
@@ -222,7 +222,7 @@ function UserActions({
             variant="outline"
             disabled={saving}
             onClick={() => onStatusAction(user, "suspended")}
-            className={mobile ? "h-9 w-full" : "h-8"}
+            className={mobile ? "min-h-11 w-full rounded-xl" : "h-8 rounded-xl"}
           >
             Suspend
           </Button>
@@ -232,7 +232,7 @@ function UserActions({
             size="sm"
             disabled={saving}
             onClick={() => onStatusAction(user, "active")}
-            className={`${mobile ? "h-9 w-full" : "h-8"} bg-[#687c59] text-white hover:bg-[#56694a]`}
+            className={`${mobile ? "min-h-11 w-full rounded-xl" : "h-8 rounded-xl"} bg-[#687c59] text-white hover:bg-[#56694a]`}
           >
             Reactivate
           </Button>
@@ -245,7 +245,7 @@ function UserActions({
           variant="outline"
           disabled={saving}
           onClick={() => onRoleAction(user, "admin")}
-          className={mobile ? "h-9 w-full" : "h-8"}
+          className={mobile ? "min-h-11 w-full rounded-xl" : "h-8 rounded-xl"}
         >
           <ShieldCheck aria-hidden="true" className="mr-1.5 size-3.5" />
           Promote to Admin
@@ -513,30 +513,15 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
     }
   }
 
-  const summaryCards = [
-    { label: "Total Users", value: counts.total, icon: UsersRound },
-    { label: "Pending", value: counts.pending, icon: Clock3 },
-    { label: "Active", value: counts.active, icon: CheckCircle2 },
-    { label: "Suspended", value: counts.suspended, icon: AlertCircle },
-  ];
-
   return (
-    <div className="min-w-0 space-y-5 sm:space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       {/* Page heading */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[#617451]">
-            <ShieldCheck aria-hidden="true" className="size-4" />
-            Administration
-          </div>
-
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             User Management
           </h1>
 
-          <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            Kelola persetujuan dan akses akun pengguna PantryOven.
-          </p>
         </div>
 
         <Button
@@ -544,44 +529,33 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
           variant="outline"
           disabled={loading || refreshing || saving}
           onClick={() => void refreshUsers()}
-          className="h-10 w-full gap-2 sm:w-auto"
+          size="icon"
+          aria-label="Muat ulang daftar pengguna"
+          title="Muat ulang daftar pengguna"
+          aria-busy={refreshing}
+          className="size-11 shrink-0 rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
         >
           <RefreshCw
             aria-hidden="true"
             className={`size-4 ${refreshing ? "animate-spin" : ""}`}
           />
-          Refresh
         </Button>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {summaryCards.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <div
-              key={item.label}
-              className="min-w-0 rounded-2xl border bg-card p-3.5 sm:p-5"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className="min-w-0 text-xs font-medium text-muted-foreground sm:text-sm">
-                  {item.label}
-                </p>
-
-                <Icon
-                  aria-hidden="true"
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
-              </div>
-
-              <p className="mt-3 text-2xl font-bold tabular-nums sm:text-3xl">
-                {loading ? "—" : item.value}
-              </p>
-            </div>
-          );
-        })}
-      </div>
+      {!loading && counts.pending > 0 && filter !== "pending" && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setSearch("");
+            setFilter("pending");
+          }}
+          className="min-h-11 w-full justify-start gap-2 rounded-xl border-amber-200 bg-amber-50 px-3 text-amber-900 hover:bg-amber-100 hover:text-amber-950 sm:w-auto"
+        >
+          <Clock3 aria-hidden="true" className="size-4 shrink-0" />
+          {counts.pending} akun menunggu persetujuan
+        </Button>
+      )}
 
       {/* Notifications */}
       {successMessage && (
@@ -608,21 +582,14 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
       )}
 
       {/* Users section */}
-      <section className="min-w-0 overflow-hidden rounded-2xl border bg-card">
-        <div className="space-y-4 border-b p-4 sm:p-5">
-          <div>
-            <h2 className="text-base font-semibold">All Users</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Tinjau dan kelola akun yang terdaftar.
-            </p>
-          </div>
-
+      <section aria-label="Daftar pengguna" className="min-w-0 overflow-hidden rounded-[26px] border border-white/55 bg-white/45 shadow-[0_10px_36px_rgba(52,59,50,0.045)] backdrop-blur-xl">
+        <div className="space-y-4 border-b border-[#8FA58A]/15 bg-[#F8F6EF]/35 p-4 sm:p-5">
           {/* Search and filters */}
           <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
               <Search
                 aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#5F705B]"
               />
 
               <Input
@@ -630,7 +597,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Cari nama, role, atau ID..."
                 aria-label="Cari pengguna"
-                className="h-10 pl-9 pr-9"
+                className="h-11 rounded-xl border-[#8FA58A]/25 bg-white/75 pl-9 pr-12 text-base placeholder:text-[#5F705B] focus-visible:ring-[#8FA58A]/45 sm:text-sm"
               />
 
               {search && (
@@ -638,7 +605,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                   type="button"
                   aria-label="Hapus pencarian"
                   onClick={() => setSearch("")}
-                  className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-md text-[#5F705B] hover:bg-muted hover:text-foreground"
                 >
                   <X aria-hidden="true" className="size-4" />
                 </button>
@@ -648,7 +615,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
             <div
               role="group"
               aria-label="Filter status pengguna"
-              className="flex min-w-0 gap-1 overflow-x-auto rounded-xl bg-muted/70 p-1"
+              className="grid min-w-0 grid-cols-2 gap-1 rounded-2xl border border-[#8FA58A]/20 bg-[#F8F6EF]/75 p-1 sm:grid-cols-4"
             >
               {statusOptions.map((option) => (
                 <button
@@ -656,13 +623,18 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                   type="button"
                   aria-pressed={filter === option.value}
                   onClick={() => setFilter(option.value)}
-                  className={`min-h-9 flex-1 shrink-0 rounded-lg px-3 text-xs font-medium transition-colors ${
+                  className={`min-h-11 rounded-xl px-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[#8FA58A]/45 ${
                     filter === option.value
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-white text-[#343B32] shadow-sm"
+                      : "text-[#536D50] hover:bg-white/70 hover:text-[#343B32]"
                   }`}
                 >
                   {option.label}
+                  {!loading && (
+                    <span className="ml-1 tabular-nums">
+                      ({counts[option.value === "all" ? "total" : option.value]})
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -670,7 +642,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
         </div>
 
         {loading ? (
-          <div className="flex min-h-56 items-center justify-center gap-3 px-4 text-sm text-muted-foreground">
+          <div className="flex min-h-56 items-center justify-center gap-3 px-4 text-sm text-[#5F705B]">
             <Loader2 aria-hidden="true" className="size-5 animate-spin" />
             Memuat daftar pengguna...
           </div>
@@ -678,28 +650,28 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
           <div className="flex min-h-56 flex-col items-center justify-center px-4 text-center">
             <UsersRound
               aria-hidden="true"
-              className="mb-3 size-8 text-muted-foreground/60"
+              className="mb-3 size-8 text-[#5F705B]/60"
             />
             <p className="font-medium">Tidak ada pengguna ditemukan</p>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-[#5F705B]">
               Coba ubah pencarian atau filter status.
             </p>
           </div>
         ) : (
           <>
             {/* Mobile user cards */}
-            <div className="divide-y md:hidden">
+            <div className="space-y-3 p-3 md:hidden">
               {filteredUsers.map((user) => (
-                <article key={user.id} className="space-y-4 p-4">
-                  <div className="flex min-w-0 items-start gap-3">
+                <article key={user.id} className="space-y-4 rounded-2xl border border-[#8FA58A]/20 bg-white/65 p-3.5">
+                  <div className="flex min-w-0 flex-wrap items-start gap-3">
                     <UserAvatar user={user} />
 
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">
+                    <div className="min-w-0 flex-[1_1_8rem]">
+                      <p className="break-words text-sm font-semibold [overflow-wrap:anywhere]">
                         {getDisplayName(user)}
                       </p>
 
-                      <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                      <p className="mt-1 truncate font-mono text-[11px] text-[#5F705B]">
                         {user.id}
                       </p>
                     </div>
@@ -707,9 +679,9 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                     <StatusBadge status={user.status} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted/40 p-3">
+                  <div className="grid grid-cols-2 gap-3 rounded-xl bg-[#F8F6EF]/85 p-3">
                     <div className="min-w-0">
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[11px] text-[#5F705B]">
                         Role
                       </p>
                       <p className="mt-1 text-sm font-medium capitalize">
@@ -718,7 +690,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                     </div>
 
                     <div className="min-w-0">
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[11px] text-[#5F705B]">
                         Terdaftar
                       </p>
                       <p className="mt-1 text-sm font-medium">
@@ -745,8 +717,8 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
             {/* Tablet and desktop table */}
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="border-b bg-muted/40">
-                  <tr className="text-xs text-muted-foreground">
+                <thead className="border-b border-[#8FA58A]/15 bg-[#F8F6EF]/65">
+                  <tr className="text-xs text-[#5F705B]">
                     <th scope="col" className="px-4 py-3 font-medium">
                       Pengguna
                     </th>
@@ -768,11 +740,11 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                   </tr>
                 </thead>
 
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-[#8FA58A]/15">
                   {filteredUsers.map((user) => (
                     <tr
                       key={user.id}
-                      className="transition-colors hover:bg-muted/30"
+                      className="transition-colors hover:bg-white/60"
                     >
                       <td className="px-4 py-4">
                         <div className="flex min-w-0 items-center gap-3">
@@ -782,7 +754,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                             <p className="max-w-48 truncate font-semibold">
                               {getDisplayName(user)}
                             </p>
-                            <p className="mt-1 max-w-40 truncate font-mono text-[11px] text-muted-foreground">
+                            <p className="mt-1 max-w-40 truncate font-mono text-[11px] text-[#5F705B]">
                               {user.id}
                             </p>
                           </div>
@@ -799,7 +771,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                         <StatusBadge status={user.status} />
                       </td>
 
-                      <td className="px-4 py-4 text-muted-foreground">
+                      <td className="px-4 py-4 text-[#5F705B]">
                         {formatDate(user.created_at)}
                       </td>
 
@@ -824,7 +796,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
         )}
 
         {!loading && (
-          <div className="border-t px-4 py-3 text-xs text-muted-foreground sm:px-5">
+          <div className="border-t border-[#8FA58A]/15 px-4 py-3 text-xs text-[#5F705B] sm:px-5">
             Menampilkan {filteredUsers.length} dari {users.length} akun
           </div>
         )}
@@ -845,7 +817,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
           onInteractOutside={(event) => {
             if (saving) event.preventDefault();
           }}
-          className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-5 sm:p-6"
+          className="w-[calc(100%-2rem)] max-w-md rounded-[26px] border-[#8FA58A]/20 bg-[#FCFBF7] p-5 sm:p-6"
         >
           {pendingAction && (
             <>
@@ -872,11 +844,11 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="min-w-0 rounded-xl bg-muted/50 p-3">
+              <div className="min-w-0 rounded-xl bg-[#F8F6EF] p-3">
                 <p className="truncate text-sm font-semibold">
                   {getDisplayName(pendingAction.user)}
                 </p>
-                <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                <p className="mt-1 break-all font-mono text-xs text-[#5F705B]">
                   {pendingAction.user.id}
                 </p>
               </div>
@@ -887,7 +859,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                   variant="outline"
                   disabled={saving}
                   onClick={() => setPendingAction(null)}
-                  className="w-full sm:w-auto"
+                  className="min-h-11 w-full sm:w-auto rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
                 >
                   Batal
                 </Button>
@@ -896,7 +868,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                   type="button"
                   disabled={saving}
                   onClick={() => void confirmStatusChange()}
-                  className={`w-full sm:w-auto ${
+                  className={`min-h-11 w-full rounded-xl sm:w-auto ${
                     pendingAction.status === "active"
                       ? "bg-[#687c59] text-white hover:bg-[#56694a]"
                       : "bg-red-600 text-white hover:bg-red-700"
@@ -934,7 +906,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
           onInteractOutside={(event) => {
             if (saving) event.preventDefault();
           }}
-          className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-5 sm:p-6"
+          className="w-[calc(100%-2rem)] max-w-md rounded-[26px] border-[#8FA58A]/20 bg-[#FCFBF7] p-5 sm:p-6"
         >
           {pendingRoleAction && (
             <>
@@ -954,11 +926,11 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="min-w-0 rounded-xl bg-muted/50 p-3">
+              <div className="min-w-0 rounded-xl bg-[#F8F6EF] p-3">
                 <p className="truncate text-sm font-semibold">
                   {getDisplayName(pendingRoleAction.user)}
                 </p>
-                <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                <p className="mt-1 break-all font-mono text-xs text-[#5F705B]">
                   {pendingRoleAction.user.id}
                 </p>
                 <p className="mt-2 text-xs font-medium capitalize">
@@ -972,7 +944,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                   variant="outline"
                   disabled={saving}
                   onClick={() => setPendingRoleAction(null)}
-                  className="w-full sm:w-auto"
+                  className="min-h-11 w-full sm:w-auto rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
                 >
                   Batal
                 </Button>
@@ -980,7 +952,7 @@ export function UserManagementTable({ currentUserId }: UserManagementTableProps)
                   type="button"
                   disabled={saving}
                   onClick={() => void confirmRoleChange()}
-                  className="w-full bg-[#687c59] text-white hover:bg-[#56694a] sm:w-auto"
+                  className="min-h-11 w-full rounded-xl bg-[#687c59] text-white hover:bg-[#56694a] sm:w-auto"
                 >
                   {saving && (
                     <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" />

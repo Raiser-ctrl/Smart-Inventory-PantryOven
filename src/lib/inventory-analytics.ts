@@ -14,12 +14,22 @@ type TransactionType =
   | "usage"
   | "waste";
 
-type DailyActivity = {
+export type DailyActivity = {
   date: string;
   stock_in: number;
   stock_out: number;
   usage: number;
   waste: number;
+};
+
+export type ItemActivitySeries = {
+  item_id: string;
+  name: string;
+  unit: string;
+  category: string;
+  totals: Record<TransactionType, number>;
+  daily: DailyActivity[];
+  transactionCount: number;
 };
 
 type TransactionRow = {
@@ -386,6 +396,13 @@ export async function getInventoryAnalytics(
     ActivitySummary
   >();
 
+  // Sparse per-item buckets keep quantities separate across units.
+  const itemBuckets = new Map<string, {
+    totals: Record<TransactionType, number>;
+    dates: Map<string, DailyActivity>;
+    transactionCount: number;
+  }>();
+
   let cursorCreatedAt: string | null = null;
   let cursorId: string | null = null;
 
@@ -476,6 +493,22 @@ export async function getInventoryAnalytics(
         totals[type] += 1;
         transactionCount += 1;
 
+        let bucket = itemBuckets.get(transaction.item_id);
+        if (!bucket) {
+          bucket = {
+            totals: { stock_in: 0, stock_out: 0, usage: 0, waste: 0 },
+            dates: new Map(), transactionCount: 0,
+          };
+          itemBuckets.set(transaction.item_id, bucket);
+        }
+        const itemDay = bucket.dates.get(date) ?? {
+          date, stock_in: 0, stock_out: 0, usage: 0, waste: 0,
+        };
+        itemDay[type] += quantity;
+        bucket.dates.set(date, itemDay);
+        bucket.totals[type] += quantity;
+        bucket.transactionCount += 1;
+
         if (type === "usage") {
           updateItemActivity(
             usageMap,
@@ -511,18 +544,36 @@ export async function getInventoryAnalytics(
     throw error;
   }
 
-  const relevantItemIds = [
-    ...new Set([
-      ...usageMap.keys(),
-      ...wasteMap.keys(),
-    ]),
-  ];
+  const relevantItemIds = [...itemBuckets.keys()];
 
   const itemInfo =
     await resolveItemInformation(
       relevantItemIds,
       options.inventoryPromise
     );
+
+  // Also allow active items without activity to be selected when inventory is available.
+  if (options.inventoryPromise) {
+    const inventory = await options.inventoryPromise.catch(() => []);
+    for (const item of inventory) {
+      if (!item.archived_at && !itemInfo.has(item.id)) {
+        itemInfo.set(item.id, { name: item.name, unit: item.unit, category: item.category });
+      }
+    }
+  }
+  const itemSeries: ItemActivitySeries[] = [...itemInfo.entries()]
+    .map(([itemId, info]) => {
+      const bucket = itemBuckets.get(itemId);
+      return {
+        item_id: itemId, ...info,
+        totals: bucket?.totals ?? { stock_in: 0, stock_out: 0, usage: 0, waste: 0 },
+        transactionCount: bucket?.transactionCount ?? 0,
+        daily: daily.map(day => bucket?.dates.get(day.date) ?? {
+          date: day.date, stock_in: 0, stock_out: 0, usage: 0, waste: 0,
+        }),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "id") || a.item_id.localeCompare(b.item_id));
 
   const topUsedMaterials =
     buildItemActivity(
@@ -558,5 +609,6 @@ export async function getInventoryAnalytics(
     daily,
     topUsedMaterials,
     wasteMonitoring,
+    itemSeries,
   };
 }

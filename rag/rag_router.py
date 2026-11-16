@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from rag.scripts.generate_summary import generate_summary
+from rag.scripts.bready_chat import ChatRequest, ChatResponse, answer_chat
 
 
 # ==========================================
@@ -166,3 +167,11 @@ Berikan rekomendasi yang realistis.
             status_code=502,
             detail="Gagal menghasilkan RAG summary.",
         ) from error
+
+
+# General bakery chat is separate from the existing ML + RAG summary flow.
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat_with_bready(payload: ChatRequest) -> ChatResponse:
+    return answer_chat(payload)

@@ -1,8 +1,8 @@
-
 import type { ReactNode } from "react";
 
 import { requireApprovedUser } from "@/lib/auth";
 import { AdminShell } from "@/components/navigation/admin-shell";
+import BreadyCopilot from "@/components/bready/BreadyCopilot";
 
 type AdminLayoutProps = {
   children: ReactNode;
@@ -11,7 +11,6 @@ type AdminLayoutProps = {
 export default async function AdminLayout({
   children,
 }: AdminLayoutProps) {
-  // Verify the user and retrieve their approved profile
   const profile = await requireApprovedUser();
 
   return (
@@ -20,6 +19,7 @@ export default async function AdminLayout({
       fullName={profile.full_name}
     >
       {children}
+      <BreadyCopilot />
     </AdminShell>
   );
 }

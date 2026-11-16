@@ -542,21 +542,21 @@ export default async function TransactionsPage({
         : "All Transactions";
 
   return (
-    <main className="min-w-0 bg-background px-4 py-5 sm:px-6 md:px-8 md:py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <main className="min-w-0 px-4 py-5 pb-28 text-[#343B32] sm:px-6 md:px-8 md:pt-8 lg:pb-8">
+      <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
         {/* Page header */}
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <h1 className="flex items-center gap-3 text-2xl font-semibold tracking-tight md:text-3xl">
               <History
                 aria-hidden="true"
-                className="size-7 shrink-0"
+                className="size-7 shrink-0 text-[#536D50]"
               />
 
               Transaction History
             </h1>
 
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-[#5F705B]">
               Search, filter, and review stock movements.
             </p>
           </div>
@@ -583,7 +583,7 @@ export default async function TransactionsPage({
 
         {/* Archive status tabs */}
         <nav
-          className="flex flex-wrap items-center gap-2"
+          className="grid grid-cols-3 gap-1 rounded-2xl border border-[#8FA58A]/20 bg-[#F8F6EF]/75 p-1 sm:w-fit sm:grid-cols-[repeat(3,minmax(6rem,1fr))]"
           aria-label="Transaction archive status"
         >
           {statusTabs.map((tab) => {
@@ -595,11 +595,12 @@ export default async function TransactionsPage({
                 key={tab.value}
                 asChild
                 size="sm"
-                variant={
+                variant="ghost"
+                className={`min-h-11 rounded-xl px-2 focus-visible:ring-[#8FA58A]/45 ${
                   isSelected
-                    ? "default"
-                    : "outline"
-                }
+                    ? "bg-white text-[#343B32] shadow-sm hover:bg-white"
+                    : "text-[#536D50] hover:bg-white/70 hover:text-[#343B32]"
+                }`}
               >
                 <Link
                   href={statusUrl(tab.value)}
@@ -617,14 +618,14 @@ export default async function TransactionsPage({
         </nav>
 
         {/* Transaction history */}
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="space-y-1 border-b pb-4">
+        <Card className="min-w-0 overflow-hidden rounded-[26px] border border-white/55 bg-white/45 shadow-[0_10px_36px_rgba(52,59,50,0.045)] backdrop-blur-xl">
+          <CardHeader className="space-y-1 border-b border-[#8FA58A]/15 bg-[#F8F6EF]/35 pb-4">
             <CardTitle className="text-base font-semibold sm:text-lg">
               {sectionTitle}
             </CardTitle>
 
             {!errorMessage && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-[#5F705B]">
                 {numberFormatter.format(total)}{" "}
                 transaction
                 {total === 1 ? "" : "s"} found
@@ -650,82 +651,85 @@ export default async function TransactionsPage({
                   }
                 />
 
-                {/* Pagination */}
-                <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">
-                      Page {page} of {totalPages}
-                    </p>
+                {totalPages > 1 && (
+                  <div className="flex flex-col gap-3 border-t border-[#8FA58A]/15 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">
+                        Page {page} of {totalPages}
+                      </p>
 
-                    <p className="text-xs text-muted-foreground">
-                      {total === 0
-                        ? "Showing 0 transactions"
-                        : `Showing ${showingFrom}–${showingTo} of ${numberFormatter.format(total)} transactions`}
-                    </p>
-                  </div>
+                      <p className="text-xs text-muted-foreground">
+                        Showing {numberFormatter.format(showingFrom)}–{numberFormatter.format(showingTo)} of {numberFormatter.format(total)} transactions
+                      </p>
+                    </div>
 
-                  <div className="flex items-center gap-2">
-                    {canGoPrevious ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        asChild
-                      >
-                        <Link
-                          href={pageUrl(page - 1)}
+                    <div className="grid grid-cols-2 gap-2 sm:flex">
+                      {canGoPrevious ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11 rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
+                          asChild
+                        >
+                          <Link
+                            href={pageUrl(page - 1)}
+                          >
+                            <ChevronLeft
+                              aria-hidden="true"
+                              className="size-4"
+                            />
+                            Previous
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11 rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
+                          disabled
                         >
                           <ChevronLeft
                             aria-hidden="true"
                             className="size-4"
                           />
                           Previous
-                        </Link>
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled
-                      >
-                        <ChevronLeft
-                          aria-hidden="true"
-                          className="size-4"
-                        />
-                        Previous
-                      </Button>
-                    )}
+                        </Button>
+                      )}
 
-                    {canGoNext ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        asChild
-                      >
-                        <Link
-                          href={pageUrl(page + 1)}
+                      {canGoNext ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11 rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
+                          asChild
+                        >
+                          <Link
+                            href={pageUrl(page + 1)}
+                          >
+                            Next
+                            <ChevronRight
+                              aria-hidden="true"
+                              className="size-4"
+                            />
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11 rounded-xl border-[#8FA58A]/25 bg-white/70 text-[#536D50] hover:bg-white hover:text-[#343B32] focus-visible:ring-[#8FA58A]/45"
+                          disabled
                         >
                           Next
                           <ChevronRight
                             aria-hidden="true"
                             className="size-4"
                           />
-                        </Link>
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled
-                      >
-                        Next
-                        <ChevronRight
-                          aria-hidden="true"
-                          className="size-4"
-                        />
-                      </Button>
-                    )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </>
             )}
           </CardContent>
