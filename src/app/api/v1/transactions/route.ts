@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 
 import { verifyApiStaff } from "@/lib/api-auth";
@@ -82,6 +81,11 @@ function isValidQuantity(
     value > 0 &&
     value <= MAX_TRANSACTION_QUANTITY
   );
+}
+
+// Match the database numeric(12, 2) precision without silently rounding.
+function hasValidQuantityPrecision(value: number): boolean {
+  return Number(value.toFixed(2)) === value;
 }
 
 // Escape LIKE wildcards in item-name search
@@ -497,6 +501,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!hasValidQuantityPrecision(quantity)) {
+      return jsonError(
+        "Jumlah transaksi maksimal 2 angka di belakang koma.",
+        400
+      );
+    }
+
     // Validate transaction notes
     if (
       notes !== undefined &&
@@ -576,6 +587,20 @@ export async function POST(request: NextRequest) {
         return jsonError(
           "Barang tidak ditemukan.",
           404
+        );
+      }
+
+      if (error.message.includes("INVALID_QUANTITY_PRECISION")) {
+        return jsonError(
+          "Jumlah transaksi maksimal 2 angka di belakang koma.",
+          400
+        );
+      }
+
+      if (error.message.includes("INVALID_IDEMPOTENCY_KEY")) {
+        return jsonError(
+          "Idempotency key wajib berupa UUID yang valid.",
+          400
         );
       }
 
