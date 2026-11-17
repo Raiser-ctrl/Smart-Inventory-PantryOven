@@ -361,14 +361,15 @@ export default async function DashboardPage({
           {analytics && (
             <div className="min-w-0">
               <InventoryAnalytics
-                period={period}
-                data={{
-                  totals: analytics.totals,
-                  daily: analytics.daily,
-                  lowStock: lowStockItems,
-                  lowStockCount: lowStockItems.length,
-                }}
-              />
+                  period={period}
+                  data={{
+                   totals: analytics.totals,
+                   daily: analytics.daily,
+                   itemSeries: analytics.itemSeries,
+                   lowStock: lowStockItems,
+                    lowStockCount: lowStockItems.length,
+                  }}
+                />
             </div>
           )}
 
