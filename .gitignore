@@ -56,9 +56,14 @@ __pycache__/
 /ml_model/data/
 /ml_model/models/
 /ml_model/artifacts/
+/ml_model/models/training_metrics.json
 *.joblib
 *.pkl
 *.pickle
+
+# Keep the PantryOven inference model
+!/ml_model/models/
+!/ml_model/models/stock_classifier.joblib
 
 # RAG vector database and embedding cache
 /rag/chroma_db/
@@ -95,3 +100,4 @@ Thumbs.db
 *.tmp
 *.swp
 *~
+
