@@ -6,14 +6,12 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
 } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  AlertTriangle,
   Archive,
   Check,
   CheckCircle2,
@@ -24,7 +22,6 @@ import {
   RotateCcw,
   Search,
   SlidersHorizontal,
-  Trash2,
   Wheat,
   X,
 } from "lucide-react";
@@ -72,11 +69,15 @@ type CategoryFilter =
   | "finished_product";
 
 type StockFilter = "all" | "low" | "healthy";
-type BulkAction = "archive" | "restore" | "delete";
+
+type BulkAction = "archive" | "restore";
+
+type UserRole = "admin" | "staff";
 
 type Props = {
   items: InventoryItem[];
   initialStatus: InventoryStatus;
+  role: UserRole;
 };
 
 type ActionFailure = {
@@ -131,6 +132,10 @@ function categoryLabel(
     : "Finished product";
 }
 
+function actionLabel(action: BulkAction) {
+  return action === "archive" ? "Archive" : "Restore";
+}
+
 function StockStatus({
   item,
 }: {
@@ -161,22 +166,14 @@ function StockStatus({
   );
 }
 
-function actionLabel(action: BulkAction) {
-  switch (action) {
-    case "archive":
-      return "Archive";
-    case "restore":
-      return "Restore";
-    case "delete":
-      return "Delete";
-  }
-}
-
 export default function InventoryWorkspace({
   items,
   initialStatus,
+  role,
 }: Props) {
   const router = useRouter();
+
+  const isAdmin = role === "admin";
 
   const [status, setStatus] =
     useState<InventoryStatus>(initialStatus);
@@ -223,7 +220,7 @@ export default function InventoryWorkspace({
   const longPressTriggered = useRef(false);
   const suppressNextClick = useRef(false);
 
-  // Browser navigation synchronization
+  // Synchronize browser back/forward navigation.
   useEffect(() => {
     function handlePopState() {
       if (processingRef.current) return;
@@ -259,17 +256,15 @@ export default function InventoryWorkspace({
   }, []);
 
   useEffect(() => {
-    const timerRef = holdTimer;
-
     return () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
+      if (holdTimer.current !== null) {
+        clearTimeout(holdTimer.current);
+        holdTimer.current = null;
       }
     };
   }, []);
 
-  // Inventory data
+  // Inventory data.
   const activeItems = useMemo(
     () => items.filter((item) => !isArchived(item)),
     [items]
@@ -278,11 +273,6 @@ export default function InventoryWorkspace({
   const archivedItems = useMemo(
     () => items.filter(isArchived),
     [items]
-  );
-
-  const lowStockCount = useMemo(
-    () => activeItems.filter(isLowStock).length,
-    [activeItems]
   );
 
   const transactionItems = useMemo(
@@ -377,14 +367,16 @@ export default function InventoryWorkspace({
     selectedCount === 1 &&
     !isArchived(selectedItems[0]);
 
+  // Only Admin can archive or restore inventory items.
   const canArchive =
-    selectedCount > 0 && !hasArchivedSelection;
+    isAdmin &&
+    selectedCount > 0 &&
+    !hasArchivedSelection;
 
   const canRestore =
-    selectedCount > 0 && !hasActiveSelection;
-
-  const canDelete =
-    selectedCount > 0 && !hasArchivedSelection;
+    isAdmin &&
+    selectedCount > 0 &&
+    !hasActiveSelection;
 
   const interactionLocked =
     processing || pendingAction !== null;
@@ -565,7 +557,7 @@ export default function InventoryWorkspace({
     resetSelectionForFilter();
   }
 
-  // Long press selection
+  // Long-press selection for touch devices.
   function cancelHold() {
     if (holdTimer.current !== null) {
       clearTimeout(holdTimer.current);
@@ -654,9 +646,10 @@ export default function InventoryWorkspace({
     }
   }
 
-  // Bulk operations
+  // Bulk archive and restore operations.
   function openAction(action: BulkAction) {
     if (
+      !isAdmin ||
       processingRef.current ||
       pendingAction !== null ||
       selectedCount === 0
@@ -666,8 +659,7 @@ export default function InventoryWorkspace({
 
     if (
       (action === "archive" && !canArchive) ||
-      (action === "restore" && !canRestore) ||
-      (action === "delete" && !canDelete)
+      (action === "restore" && !canRestore)
     ) {
       return;
     }
@@ -687,7 +679,11 @@ export default function InventoryWorkspace({
   }
 
   async function processBulkAction() {
-    if (!pendingAction || processingRef.current) {
+    if (
+      !isAdmin ||
+      !pendingAction ||
+      processingRef.current
+    ) {
       return;
     }
 
@@ -710,13 +706,10 @@ export default function InventoryWorkspace({
           const encodedId = encodeURIComponent(item.id);
 
           const endpoint =
-            action === "delete"
-              ? `/api/v1/items/${encodedId}`
-              : `/api/v1/items/${encodedId}/${action}`;
+            `/api/v1/items/${encodedId}/${action}`;
 
           const response = await fetch(endpoint, {
-            method:
-              action === "delete" ? "DELETE" : "POST",
+            method: "POST",
             credentials: "same-origin",
             cache: "no-store",
           });
@@ -829,20 +822,6 @@ export default function InventoryWorkspace({
             Restore
           </Button>
         )}
-
-        {canDelete && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={interactionLocked}
-            className="rounded-xl border-[#C9857C]/25 bg-[#C9857C]/10 text-[#B76F67] hover:bg-[#C9857C]/15 hover:text-[#A65C55]"
-            onClick={() => openAction("delete")}
-          >
-            <Trash2 className="mr-1.5 size-4" />
-            Delete
-          </Button>
-        )}
       </>
     );
   }
@@ -888,9 +867,7 @@ export default function InventoryWorkspace({
                 type="button"
                 aria-pressed={status === tab.value}
                 disabled={interactionLocked}
-                onClick={() =>
-                  changeStatus(tab.value)
-                }
+                onClick={() => changeStatus(tab.value)}
                 className={`min-h-10 shrink-0 rounded-xl px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:text-sm ${
                   status === tab.value
                     ? "bg-white/90 text-[#343B32] shadow-sm"
@@ -1013,15 +990,9 @@ export default function InventoryWorkspace({
               aria-label="Filter by category"
               className="h-10 w-full min-w-0 rounded-xl border border-[#8FA58A]/20 bg-white/75 px-3 text-sm text-[#343B32] outline-none focus-visible:ring-2 focus-visible:ring-[#8FA58A]/40 disabled:opacity-50"
             >
-              <option value="all">
-                All categories
-              </option>
-              <option value="raw_material">
-                Raw materials
-              </option>
-              <option value="finished_product">
-                Finished products
-              </option>
+              <option value="all">All categories</option>
+              <option value="raw_material">Raw materials</option>
+              <option value="finished_product">Finished products</option>
             </select>
 
             <select
@@ -1042,19 +1013,13 @@ export default function InventoryWorkspace({
               aria-label="Filter by stock health"
               className="h-10 w-full min-w-0 rounded-xl border border-[#8FA58A]/20 bg-white/75 px-3 text-sm text-[#343B32] outline-none focus-visible:ring-2 focus-visible:ring-[#8FA58A]/40 disabled:opacity-50"
             >
-              <option value="all">
-                All stock levels
-              </option>
-              <option value="low">
-                Need restock
-              </option>
-              <option value="healthy">
-                Healthy
-              </option>
+              <option value="all">All stock levels</option>
+              <option value="low">Need restock</option>
+              <option value="healthy">Healthy</option>
             </select>
           </div>
 
-          {/* Compact contextual information */}
+          {/* Contextual information */}
           {(selectionMode || hasExtraFilters) && (
             <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
               {selectionMode ? (
@@ -1079,9 +1044,7 @@ export default function InventoryWorkspace({
                     )}
                   </span>
 
-                  {allSelected
-                    ? "Deselect all"
-                    : "Select all"}
+                  {allSelected ? "Deselect all" : "Select all"}
                 </button>
               ) : (
                 <span className="text-xs tabular-nums text-[#7A8775]">
@@ -1120,14 +1083,26 @@ export default function InventoryWorkspace({
             </div>
           )}
 
+          {/* Mixed archive status warning */}
           {selectionMode &&
             selectedCount > 0 &&
-            !canArchive &&
-            !canRestore &&
-            !canDelete && (
+            isAdmin &&
+            hasActiveSelection &&
+            hasArchivedSelection && (
               <p className="text-xs text-[#7A8775]">
                 Select items with the same archive status
                 to perform a bulk action.
+              </p>
+            )}
+
+          {/* Staff information */}
+          {selectionMode &&
+            selectedCount > 0 &&
+            !isAdmin &&
+            !canEdit && (
+              <p className="text-xs text-[#7A8775]">
+                Select one active item to edit it. Archive
+                and restore actions are restricted to Admin.
               </p>
             )}
 
@@ -1146,9 +1121,7 @@ export default function InventoryWorkspace({
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setActionResult(null)
-                  }
+                  onClick={() => setActionResult(null)}
                   aria-label="Dismiss result"
                   className="shrink-0 text-[#7A8775] hover:text-[#343B32]"
                 >
@@ -1158,14 +1131,11 @@ export default function InventoryWorkspace({
 
               {actionResult.failures.length > 0 && (
                 <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-[#B76F67]">
-                  {actionResult.failures.map(
-                    (failure) => (
-                      <li key={failure.id}>
-                        {failure.name}:{" "}
-                        {failure.message}
-                      </li>
-                    )
-                  )}
+                  {actionResult.failures.map((failure) => (
+                    <li key={failure.id}>
+                      {failure.name}: {failure.message}
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>
@@ -1193,9 +1163,7 @@ export default function InventoryWorkspace({
               <TableRow className="border-[#8FA58A]/10 bg-[#F8F6EF]/35 hover:bg-[#F8F6EF]/35">
                 {selectionMode && (
                   <TableHead className="w-10 pl-5">
-                    <span className="sr-only">
-                      Select
-                    </span>
+                    <span className="sr-only">Select</span>
                   </TableHead>
                 )}
 
@@ -1224,41 +1192,26 @@ export default function InventoryWorkspace({
             <TableBody>
               {filteredItems.map((item) => {
                 const archived = isArchived(item);
-                const selected = selectedIdSet.has(
-                  item.id
-                );
+                const selected = selectedIdSet.has(item.id);
 
                 return (
                   <TableRow
                     key={item.id}
                     aria-selected={
-                      selectionMode
-                        ? selected
-                        : undefined
+                      selectionMode ? selected : undefined
                     }
                     onPointerDown={(event) =>
-                      handlePointerDown(
-                        event,
-                        item.id
-                      )
+                      handlePointerDown(event, item.id)
                     }
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
-                    onPointerCancel={
-                      handlePointerCancel
-                    }
-                    onContextMenu={
-                      handleContextMenu
-                    }
-                    onClick={() =>
-                      handleRowClick(item.id)
-                    }
+                    onPointerCancel={handlePointerCancel}
+                    onContextMenu={handleContextMenu}
+                    onClick={() => handleRowClick(item.id)}
                     className={[
                       "border-[#8FA58A]/10",
                       "transition-colors",
-                      archived
-                        ? "bg-[#F8F6EF]/35"
-                        : "",
+                      archived ? "bg-[#F8F6EF]/35" : "",
                       selectionMode
                         ? "cursor-pointer select-none"
                         : "",
@@ -1286,8 +1239,7 @@ export default function InventoryWorkspace({
                     <TableCell className="py-3.5 pl-5">
                       <div className="flex min-w-0 items-center gap-3">
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#8FA58A]/10 text-[#536D50]">
-                          {item.category ===
-                          "raw_material" ? (
+                          {item.category === "raw_material" ? (
                             <Wheat className="size-4" />
                           ) : (
                             <Package className="size-4" />
@@ -1308,16 +1260,12 @@ export default function InventoryWorkspace({
                     </TableCell>
 
                     <TableCell className="whitespace-nowrap text-sm font-semibold tabular-nums text-[#343B32]">
-                      {formatter.format(
-                        Number(item.current_stock)
-                      )}{" "}
+                      {formatter.format(Number(item.current_stock))}{" "}
                       {item.unit}
                     </TableCell>
 
                     <TableCell className="whitespace-nowrap text-sm tabular-nums text-[#7A8775]">
-                      {formatter.format(
-                        Number(item.minimum_stock)
-                      )}{" "}
+                      {formatter.format(Number(item.minimum_stock))}{" "}
                       {item.unit}
                     </TableCell>
 
@@ -1360,30 +1308,19 @@ export default function InventoryWorkspace({
           className="divide-y divide-[#8FA58A]/10 border-t border-[#8FA58A]/10 md:hidden"
         >
           {filteredItems.map((item) => {
-            const selected = selectedIdSet.has(
-              item.id
-            );
+            const selected = selectedIdSet.has(item.id);
 
             return (
               <article
                 key={item.id}
                 onPointerDown={(event) =>
-                  handlePointerDown(
-                    event,
-                    item.id
-                  )
+                  handlePointerDown(event, item.id)
                 }
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
-                onPointerCancel={
-                  handlePointerCancel
-                }
-                onContextMenu={
-                  handleContextMenu
-                }
-                onClick={() =>
-                  handleRowClick(item.id)
-                }
+                onPointerCancel={handlePointerCancel}
+                onContextMenu={handleContextMenu}
+                onClick={() => handleRowClick(item.id)}
                 onKeyDown={(event) => {
                   if (
                     selectionMode &&
@@ -1395,36 +1332,24 @@ export default function InventoryWorkspace({
                     toggleSelection(item.id);
                   }
                 }}
-                role={
-                  selectionMode
-                    ? "checkbox"
-                    : undefined
-                }
+                role={selectionMode ? "checkbox" : undefined}
                 aria-checked={
-                  selectionMode
-                    ? selected
-                    : undefined
+                  selectionMode ? selected : undefined
                 }
                 aria-disabled={
                   selectionMode && interactionLocked
                     ? true
                     : undefined
                 }
-                tabIndex={
-                  selectionMode ? 0 : undefined
-                }
+                tabIndex={selectionMode ? 0 : undefined}
                 className={[
                   "px-4 py-3.5",
                   "transition-colors",
-                  isArchived(item)
-                    ? "bg-[#F8F6EF]/35"
-                    : "",
+                  isArchived(item) ? "bg-[#F8F6EF]/35" : "",
                   selectionMode
                     ? "cursor-pointer select-none"
                     : "",
-                  selected
-                    ? "bg-[#8FA58A]/10"
-                    : "",
+                  selected ? "bg-[#8FA58A]/10" : "",
                 ].join(" ")}
               >
                 <div className="flex min-w-0 items-center gap-3">
@@ -1461,18 +1386,14 @@ export default function InventoryWorkspace({
 
                     <p className="mt-1 text-[11px] text-[#7A8775]/80">
                       Min{" "}
-                      {formatter.format(
-                        Number(item.minimum_stock)
-                      )}{" "}
+                      {formatter.format(Number(item.minimum_stock))}{" "}
                       {item.unit}
                     </p>
                   </div>
 
                   <div className="flex shrink-0 flex-col items-end gap-1.5">
                     <span className="text-sm font-semibold tabular-nums text-[#343B32]">
-                      {formatter.format(
-                        Number(item.current_stock)
-                      )}{" "}
+                      {formatter.format(Number(item.current_stock))}{" "}
                       {item.unit}
                     </span>
 
@@ -1486,8 +1407,7 @@ export default function InventoryWorkspace({
           {filteredItems.length === 0 && (
             <div className="px-4 py-12 text-center">
               <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-[#8FA58A]/10 text-[#536D50]">
-                {status === "active" &&
-                !hasExtraFilters ? (
+                {status === "active" && !hasExtraFilters ? (
                   <CheckCircle2 className="size-6" />
                 ) : (
                   <Package className="size-6" />
@@ -1554,9 +1474,7 @@ export default function InventoryWorkspace({
             name: editItem.name,
             category: editItem.category,
             unit: editItem.unit,
-            minimum_stock: Number(
-              editItem.minimum_stock
-            ),
+            minimum_stock: Number(editItem.minimum_stock),
           }}
           open
           hideTrigger
@@ -1572,7 +1490,7 @@ export default function InventoryWorkspace({
         />
       )}
 
-      {/* Bulk confirmation */}
+      {/* Archive / Restore confirmation */}
       <AlertDialog
         open={pendingAction !== null}
         onOpenChange={(nextOpen) => {
@@ -1585,27 +1503,21 @@ export default function InventoryWorkspace({
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[#343B32]">
               {pendingAction
-                ? `${actionLabel(
-                    pendingAction
-                  )} ${pendingTargets.length} items?`
+                ? `${actionLabel(pendingAction)} ${pendingTargets.length} items?`
                 : "Confirm action"}
             </AlertDialogTitle>
 
             <AlertDialogDescription className="text-[#7A8775]">
-              {pendingAction === "delete"
-                ? "Selected items will be permanently deleted. Items with transaction history cannot be deleted. This action cannot be undone."
-                : pendingAction === "archive"
-                  ? "Selected items will be removed from active inventory. Transaction history will remain saved."
-                  : "Selected items will be restored to active inventory."}
+              {pendingAction === "archive"
+                ? "Selected items will be removed from active inventory. Their stock and transaction history will remain saved."
+                : "Selected items will be restored to active inventory."}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <div className="max-h-40 overflow-y-auto rounded-2xl bg-[#8FA58A]/10 p-3">
             <ul className="space-y-1 text-sm text-[#343B32]">
               {pendingTargets.map((item) => (
-                <li key={item.id}>
-                  {item.name}
-                </li>
+                <li key={item.id}>{item.name}</li>
               ))}
             </ul>
           </div>
@@ -1616,8 +1528,7 @@ export default function InventoryWorkspace({
               className="flex items-center gap-2 text-sm text-[#7A8775]"
             >
               <Loader2 className="size-4 animate-spin" />
-              Processing {progress} of{" "}
-              {pendingTargets.length}...
+              Processing {progress} of {pendingTargets.length}...
             </p>
           )}
 
@@ -1632,13 +1543,10 @@ export default function InventoryWorkspace({
             <AlertDialogAction
               disabled={
                 processing ||
-                pendingTargets.length === 0
+                pendingTargets.length === 0 ||
+                !isAdmin
               }
-              className={
-                pendingAction === "delete"
-                  ? "bg-[#B76F67] text-white hover:bg-[#A65C55]"
-                  : "bg-[#536D50] text-white hover:bg-[#435A40]"
-              }
+              className="bg-[#536D50] text-white hover:bg-[#435A40]"
               onClick={(event) => {
                 event.preventDefault();
                 void processBulkAction();
@@ -1650,9 +1558,7 @@ export default function InventoryWorkspace({
                   Processing...
                 </>
               ) : pendingAction ? (
-                `${actionLabel(
-                  pendingAction
-                )} items`
+                `${actionLabel(pendingAction)} items`
               ) : (
                 "Confirm"
               )}

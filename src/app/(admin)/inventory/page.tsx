@@ -21,7 +21,7 @@ export default async function InventoryPage({
   searchParams,
 }: InventoryPageProps) {
   // Only approved Admin and Staff accounts can access inventory.
-  await requireApprovedUser();
+  const profile = await requireApprovedUser();
 
   const params = await searchParams;
 
@@ -126,6 +126,7 @@ export default async function InventoryPage({
         key={initialStatus}
         items={items}
         initialStatus={initialStatus}
+        role={profile.role}
       />
     </div>
   );

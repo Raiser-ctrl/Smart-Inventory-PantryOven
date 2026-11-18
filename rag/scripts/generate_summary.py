@@ -20,7 +20,7 @@ RAG_DIR = Path(__file__).resolve().parents[1]
 
 load_dotenv(
     RAG_DIR / ".env",
-    override=True,
+    override=False,
 )
 
 API_KEY = os.getenv("GEMINI_API_KEY")

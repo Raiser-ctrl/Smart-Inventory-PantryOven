@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { verifyApiStaff } from "@/lib/api-auth";
+import { verifyApiAdmin } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -19,7 +19,6 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-// Return consistent API errors
 function jsonError(message: string, status: number) {
   return NextResponse.json(
     {
@@ -33,7 +32,6 @@ function jsonError(message: string, status: number) {
   );
 }
 
-// Verify same-origin requests
 function verifyOrigin(request: NextRequest) {
   const configuredOrigin =
     process.env.APP_ORIGIN ??
@@ -88,33 +86,34 @@ function verifyOrigin(request: NextRequest) {
 }
 
 // POST /api/v1/items/[id]/archive
+// Only active admins can archive inventory items.
 export async function POST(
   request: NextRequest,
   context: RouteContext
 ) {
   try {
-    // Verify active Admin or Staff
-    const auth = await verifyApiStaff();
+    // Verify active admin permission.
+    const auth = await verifyApiAdmin();
 
     if (!auth.authorized) {
       return jsonError(auth.message, auth.status);
     }
 
-    // Verify request origin
+    // Verify request origin.
     const originError = verifyOrigin(request);
 
     if (originError) {
       return originError;
     }
 
-    // Validate item ID
+    // Validate item ID.
     const { id } = await context.params;
 
     if (!UUID_REGEX.test(id)) {
       return jsonError("ID barang tidak valid.", 400);
     }
 
-    // Archive item through PostgreSQL RPC
+    // Archive through PostgreSQL RPC.
     const { data, error } = await supabaseAdmin.rpc(
       "archive_inventory_item",
       {
@@ -129,9 +128,7 @@ export async function POST(
         return jsonError("Barang tidak ditemukan.", 404);
       }
 
-      if (
-        message.includes("ITEM_ALREADY_ARCHIVED")
-      ) {
+      if (message.includes("ITEM_ALREADY_ARCHIVED")) {
         return jsonError(
           "Barang sudah diarsipkan.",
           409
@@ -149,8 +146,21 @@ export async function POST(
       );
     }
 
-    if (!data) {
-      return jsonError("Barang tidak ditemukan.", 404);
+    // Validate RPC response.
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !data.id ||
+      !data.archived_at
+    ) {
+      console.error(
+        "ARCHIVE item RPC returned invalid data."
+      );
+
+      return jsonError(
+        "Respons database tidak valid.",
+        500
+      );
     }
 
     return NextResponse.json(

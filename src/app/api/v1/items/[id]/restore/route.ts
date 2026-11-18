@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { verifyApiStaff } from "@/lib/api-auth";
+import { verifyApiAdmin } from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -88,13 +88,14 @@ function verifyOrigin(request: NextRequest) {
 }
 
 // POST /api/v1/items/[id]/restore
+// Only active admins can restore inventory items.
 export async function POST(
   request: NextRequest,
   context: RouteContext
 ) {
   try {
-    // Verify active Admin or Staff
-    const auth = await verifyApiStaff();
+    // Verify active admin permissions
+    const auth = await verifyApiAdmin();
 
     if (!auth.authorized) {
       return jsonError(auth.message, auth.status);
@@ -126,7 +127,10 @@ export async function POST(
       const message = error.message;
 
       if (message.includes("ITEM_NOT_FOUND")) {
-        return jsonError("Barang tidak ditemukan.", 404);
+        return jsonError(
+          "Barang tidak ditemukan.",
+          404
+        );
       }
 
       if (message.includes("ITEM_ALREADY_ACTIVE")) {
@@ -139,6 +143,7 @@ export async function POST(
       console.error("RESTORE item RPC error:", {
         code: error.code,
         message: error.message,
+        details: error.details,
       });
 
       return jsonError(
@@ -147,8 +152,20 @@ export async function POST(
       );
     }
 
-    if (!data) {
-      return jsonError("Barang tidak ditemukan.", 404);
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !data.id ||
+      data.archived_at !== null
+    ) {
+      console.error(
+        "RESTORE item RPC returned invalid data."
+      );
+
+      return jsonError(
+        "Respons database tidak valid.",
+        500
+      );
     }
 
     return NextResponse.json(
@@ -167,7 +184,7 @@ export async function POST(
       }
     );
   } catch (error) {
-    console.error("RESTORE item error:", error);
+    console.error("RESTORE item unexpected error:", error);
 
     return jsonError(
       "Gagal mengaktifkan barang.",

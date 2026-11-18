@@ -31,10 +31,29 @@ type Item = {
 
 type Mode = "predict" | "rag";
 type ChatContext = "general" | "advice" | "ideas" | "shopping" | "waste";
+
 const ADVICE_OPTIONS = [
-  { context: "ideas", label: "Ide Olahan", description: "Temukan ide dari bahan yang tersedia", question: "Beri aku ide olahan bakery dari stok saat ini. Pisahkan bahan yang tersedia dan bahan tambahan yang perlu disiapkan." },
-  { context: "shopping", label: "Prioritas Belanja", description: "Tentukan bahan yang perlu diperhatikan", question: "Bantu susun prioritas belanja berdasarkan stok dan batas minimum saat ini. Tanyakan rencana produksi sebelum menentukan jumlah belanja." },
-  { context: "waste", label: "Kurangi Waste", description: "Rencanakan pemanfaatan bahan", question: "Bantu kurangi bahan terbuang. Tanyakan bahan yang ingin diprioritaskan dan kondisinya; jangan menganggap ada bahan yang hampir kedaluwarsa tanpa informasi." },
+  {
+    context: "ideas",
+    label: "Ide Olahan",
+    description: "Temukan ide dari bahan yang tersedia",
+    question:
+      "Beri aku ide olahan bakery dari stok saat ini. Pisahkan bahan yang tersedia dan bahan tambahan yang perlu disiapkan.",
+  },
+  {
+    context: "shopping",
+    label: "Prioritas Belanja",
+    description: "Tentukan bahan yang perlu diperhatikan",
+    question:
+      "Bantu susun prioritas belanja berdasarkan stok dan batas minimum saat ini. Tanyakan rencana produksi sebelum menentukan jumlah belanja.",
+  },
+  {
+    context: "waste",
+    label: "Kurangi Waste",
+    description: "Rencanakan pemanfaatan bahan",
+    question:
+      "Bantu kurangi bahan terbuang. Tanyakan bahan yang ingin diprioritaskan dan kondisinya; jangan menganggap ada bahan yang hampir kedaluwarsa tanpa informasi.",
+  },
 ] as const;
 
 type Step =
@@ -88,6 +107,11 @@ type Recommendation = {
   data_quality: string;
 };
 
+type ApiErrorResponse = {
+  success?: boolean;
+  message?: string;
+};
+
 const LEAD_TIME_OPTIONS = [1, 3, 7, 14];
 
 const formatter = new Intl.NumberFormat("id-ID", {
@@ -95,6 +119,16 @@ const formatter = new Intl.NumberFormat("id-ID", {
 });
 
 const fmt = (value: number) => formatter.format(value);
+
+class ApiRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+  }
+}
 
 function makeMessage(
   role: "assistant" | "user",
@@ -156,31 +190,64 @@ async function requestApi<T>(
   signal: AbortSignal,
   body?: Record<string, unknown>
 ): Promise<T> {
-  const response = await fetch(url, {
-    method: body ? "POST" : "GET",
-    credentials: "same-origin",
-    cache: "no-store",
-    signal,
-    headers: body
-      ? { "Content-Type": "application/json" }
-      : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response: Response;
 
-  const result = (await response.json()) as Envelope<T>;
+  try {
+    response = await fetch(url, {
+      method: body ? "POST" : "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+      headers: body
+        ? { "Content-Type": "application/json" }
+        : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (error) {
+    if (signal.aborted) {
+      throw error;
+    }
 
-  if (!response.ok || result.success !== true) {
-    throw new Error(
-      result.message ||
-        `Permintaan gagal (${response.status}).`
+    throw new ApiRequestError(
+      "Tidak dapat terhubung ke server. Periksa koneksi dan coba lagi.",
+      0
     );
   }
 
-  if (result.data === undefined) {
-    throw new Error("Data respons API tidak tersedia.");
+  let result: Envelope<T> | ApiErrorResponse;
+
+  try {
+    result = (await response.json()) as
+      | Envelope<T>
+      | ApiErrorResponse;
+  } catch {
+    throw new ApiRequestError(
+      "Server mengirim respons yang tidak valid.",
+      response.status
+    );
   }
 
-  return result.data;
+  if (
+    !response.ok ||
+    !("success" in result) ||
+    result.success !== true
+  ) {
+    const message =
+      typeof result.message === "string" && result.message.trim()
+        ? result.message
+        : `Permintaan gagal (${response.status}).`;
+
+    throw new ApiRequestError(message, response.status);
+  }
+
+  if (!("data" in result) || result.data === undefined) {
+    throw new ApiRequestError(
+      "Data respons API tidak tersedia.",
+      response.status
+    );
+  }
+
+  return result.data as T;
 }
 
 function stockSummary(items: Item[]) {
@@ -218,6 +285,22 @@ function stockSummary(items: Item[]) {
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function isInventoryQuestion(question: string): boolean {
+  const normalized = question.toLocaleLowerCase("id-ID");
+
+  const hasInventoryTerm =
+    /\b(stok|stock|inventory|persediaan|bahan baku|bahan bakery|restock|restok|belanja bahan|ketersediaan bahan|jumlah bahan|sisa bahan|bahan habis|bahan menipis|batas minimum)\b/i.test(
+      normalized
+    );
+
+  const hasStatusIntent =
+    /\b(cek|lihat|periksa|bagaimana|berapa|kondisi|sekarang|saat ini|ringkasan|ringkas|daftar|mana|tersedia|cukup|aman|menipis|habis|rendah|minimum|perlu|prioritas)\b/i.test(
+      normalized
+    );
+
+  return hasInventoryTerm && hasStatusIntent;
 }
 
 function formatPrediction(data: Prediction, days: number) {
@@ -275,12 +358,8 @@ function formatRagForChat(summary: string) {
     .trim();
 }
 
-export default function BreadyChatPanel({
-  onClose,
-}: Props) {
-  const [messages, setMessages] = useState<
-    BreadyChatMessage[]
-  >([
+export default function BreadyChatPanel({ onClose }: Props) {
+  const [messages, setMessages] = useState<BreadyChatMessage[]>([
     {
       id: "welcome",
       role: "assistant",
@@ -290,54 +369,34 @@ export default function BreadyChatPanel({
   ]);
 
   const [items, setItems] = useState<Item[]>([]);
-  const [inventoryReady, setInventoryReady] =
-    useState(false);
+  const [inventoryReady, setInventoryReady] = useState(false);
   const [step, setStep] = useState<Step>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [showAdvice, setShowAdvice] = useState(false);
-  const [chatContext, setChatContext] = useState<ChatContext>("general");
+  const [chatContext, setChatContext] =
+    useState<ChatContext>("general");
+  const [loadingText, setLoadingText] = useState(
+    "Bready sedang memeriksa..."
+  );
+
   const contextRef = useRef<ChatContext>("general");
-
-  function changeContext(context: ChatContext) {
-    contextRef.current = context;
-    setChatContext(context);
-  }
-
-  function startAdvice() {
-    if (busy.current) return;
-    updateStep(null);
-    setSearch("");
-    changeContext("advice");
-    setShowAdvice(true);
-    say("user", "Minta Saran");
-    say("assistant", "Mau cari ide olahan dari stok, menyusun prioritas belanja, atau mengurangi bahan terbuang? Pilih di bawah atau ceritakan kebutuhanmu langsung.");
-    inputRef.current?.focus();
-  }
-
-  function leaveAdvice() {
-    if (busy.current) return;
-    changeContext("general");
-    setShowAdvice(false);
-    updateStep(null);
-    setSearch("");
-    inputRef.current?.focus();
-  }
-
   const mounted = useRef(false);
   const busy = useRef(false);
   const controller = useRef<AbortController | null>(null);
-  const initialController = useRef<AbortController | null>(
-    null
-  );
+  const initialController = useRef<AbortController | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<Item[]>([]);
   const stepRef = useRef<Step>(null);
   const messagesRef = useRef<BreadyChatMessage[]>(messages);
-  const [loadingText, setLoadingText] = useState("Bready sedang memeriksa...");
+
+  function changeContext(context: ChatContext) {
+    contextRef.current = context;
+    setChatContext(context);
+  }
 
   function updateStep(next: Step) {
     stepRef.current = next;
@@ -350,7 +409,11 @@ export default function BreadyChatPanel({
   ) {
     if (!mounted.current) return;
 
-    const next = [...messagesRef.current, makeMessage(role, content)];
+    const next = [
+      ...messagesRef.current,
+      makeMessage(role, content),
+    ];
+
     messagesRef.current = next;
     setMessages(next);
   }
@@ -377,8 +440,11 @@ export default function BreadyChatPanel({
           setInventoryReady(true);
         }
       } catch {
-        // Pengguna masih bisa mencoba memuat ulang
-        // inventory melalui tombol fitur.
+        // Inventory bisa dimuat kembali melalui tombol fitur.
+      } finally {
+        if (initialController.current === abort) {
+          initialController.current = null;
+        }
       }
     })();
 
@@ -433,10 +499,10 @@ export default function BreadyChatPanel({
     }
   }
 
-  async function getItems(
-    signal: AbortSignal
-  ): Promise<Item[]> {
+  async function getItems(signal: AbortSignal): Promise<Item[]> {
     initialController.current?.abort();
+    initialController.current = null;
+
     const raw = await requestApi<unknown>(
       "/api/v1/items",
       signal
@@ -444,7 +510,7 @@ export default function BreadyChatPanel({
 
     const parsed = parseItems(raw);
 
-    if (mounted.current) {
+    if (mounted.current && !signal.aborted) {
       itemsRef.current = parsed;
       setItems(parsed);
       setInventoryReady(true);
@@ -455,32 +521,60 @@ export default function BreadyChatPanel({
 
   function checkStock() {
     if (busy.current) return;
+
     changeContext("general");
     setShowAdvice(false);
-
     updateStep(null);
     setSearch("");
 
     say("user", "Cek Stok");
 
-    void runTask(async (signal) => {
-      const available = await getItems(signal);
-      say("assistant", stockSummary(available));
-    });
+    void runTask(
+      async (signal) => {
+        const available = await getItems(signal);
+        say("assistant", stockSummary(available));
+      },
+      "Bready sedang memuat data inventory..."
+    );
+  }
+
+  function startAdvice() {
+    if (busy.current) return;
+
+    updateStep(null);
+    setSearch("");
+    changeContext("advice");
+    setShowAdvice(true);
+
+    say("user", "Minta Saran");
+    say(
+      "assistant",
+      "Mau cari ide olahan dari stok, menyusun prioritas belanja, atau mengurangi bahan terbuang? Pilih di bawah atau ceritakan kebutuhanmu langsung."
+    );
+
+    inputRef.current?.focus();
+  }
+
+  function leaveAdvice() {
+    if (busy.current) return;
+
+    changeContext("general");
+    setShowAdvice(false);
+    updateStep(null);
+    setSearch("");
+    inputRef.current?.focus();
   }
 
   function startMode(mode: Mode) {
     if (busy.current) return;
+
     changeContext("general");
     setShowAdvice(false);
-
     setSearch("");
 
     say(
       "user",
-      mode === "predict"
-        ? "Cek Kebutuhan"
-        : "Minta Saran"
+      mode === "predict" ? "Cek Kebutuhan" : "Minta Saran"
     );
 
     updateStep({ kind: "item", mode });
@@ -493,9 +587,19 @@ export default function BreadyChatPanel({
     );
 
     if (!inventoryReady) {
-      void runTask(async (signal) => {
-        await getItems(signal);
-      });
+      void runTask(
+        async (signal) => {
+          const available = await getItems(signal);
+
+          if (!available.length) {
+            say(
+              "assistant",
+              "Inventory masih kosong. Tambahkan bahan terlebih dahulu."
+            );
+          }
+        },
+        "Bready sedang memuat daftar bahan..."
+      );
     }
 
     inputRef.current?.focus();
@@ -509,7 +613,6 @@ export default function BreadyChatPanel({
     if (!active || active.kind !== "item") return;
 
     say("user", item.name);
-
     setSearch("");
 
     updateStep({
@@ -543,90 +646,220 @@ export default function BreadyChatPanel({
   ) {
     updateStep(null);
 
-    await runTask(async (signal) => {
-      if (mode === "predict") {
-        const data = await requestApi<Prediction>(
-          "/api/v1/ai/predict",
-          signal,
-          {
-            item_id: item.id,
-            lead_time_days: days,
-          }
-        );
+    await runTask(
+      async (signal) => {
+        if (mode === "predict") {
+          const data = await requestApi<Prediction>(
+            "/api/v1/ai/predict",
+            signal,
+            {
+              item_id: item.id,
+              lead_time_days: days,
+            }
+          );
 
-        say(
-          "assistant",
-          formatPrediction(data, days)
-        );
-      } else {
-        const data = await requestApi<Recommendation>(
-          "/api/v1/ai/rag",
-          signal,
-          {
-            item_id: item.id,
-            lead_time_days: days,
-          }
-        );
+          say("assistant", formatPrediction(data, days));
+        } else {
+          const data = await requestApi<Recommendation>(
+            "/api/v1/ai/rag",
+            signal,
+            {
+              item_id: item.id,
+              lead_time_days: days,
+            }
+          );
 
-        say(
-          "assistant",
-          [
-            `Aku sudah cek kondisi ${data.item.name}.`,
-            formatRagForChat(data.summary),
-            data.data_quality !== "adequate"
-              ? "Catatan: riwayat pemakaian masih terbatas. Sebaiknya cocokkan saran ini dengan kebutuhan produksi sebenarnya."
-              : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n")
-        );
-      }
-    });
+          say(
+            "assistant",
+            [
+              `Aku sudah cek kondisi ${data.item.name}.`,
+              formatRagForChat(data.summary),
+              data.data_quality !== "adequate"
+                ? "Catatan: riwayat pemakaian masih terbatas. Sebaiknya cocokkan saran ini dengan kebutuhan produksi sebenarnya."
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n\n")
+          );
+        }
+      },
+      mode === "predict"
+        ? "Bready sedang menganalisis kebutuhan stok..."
+        : "Bready sedang menyusun rekomendasi..."
+    );
   }
 
-  async function askBready(question: string, context: ChatContext = contextRef.current) {
+  async function askBready(
+    question: string,
+    context: ChatContext = contextRef.current
+  ) {
     if (busy.current) return;
+
     changeContext(context);
     setShowAdvice(false);
-    // Snapshot before the new user message so the current question isn't duplicated.
-    const history = messagesRef.current.filter(m => m.id !== "welcome")
-      .slice(-8).map(({ role, content }) => ({ role, content: content.slice(0, 1500) }));
+
+    // Riwayat diambil sebelum pesan terbaru ditambahkan.
+    const history = messagesRef.current
+      .filter((message) => message.id !== "welcome")
+      .slice(-8)
+      .map(({ role, content }) => ({
+        role,
+        content: content.slice(0, 1500),
+      }));
+
     say("user", question);
     setInput("");
     updateStep(null);
     setSearch("");
-    let nextPrediction: { mode: Mode; item: Item; days: number } | null = null;
-    await runTask(async (signal) => {
-      const data = await requestApi<ChatReply>("/api/v1/ai/chat", signal, {
-        message: question, history, context,
-      });
-      if (typeof data.answer !== "string" || !data.answer.trim()) {
-        throw new Error("Jawaban Bready belum tersedia. Coba lagi, ya.");
-      }
-      say("assistant", data.answer);
-      if (context === "general" && (data.action === "predict" || data.action === "rag")) {
-        const available = await getItems(signal);
-        if (!available.length) {
-          say("assistant", "Belum ada bahan aktif. Tambahkan bahan di Inventory terlebih dahulu.");
+
+    // Ref object mencegah masalah control-flow TypeScript
+    // ketika nilai diperbarui di dalam callback runTask.
+    const nextPrediction = {
+      current: null as {
+        mode: Mode;
+        item: Item;
+        days: number;
+      } | null,
+    };
+
+    await runTask(
+      async (signal) => {
+        let data: ChatReply;
+
+        try {
+          data = await requestApi<ChatReply>(
+            "/api/v1/ai/chat",
+            signal,
+            {
+              message: question,
+              history,
+              context,
+            }
+          );
+        } catch (error) {
+          const isServiceUnavailable =
+            error instanceof ApiRequestError &&
+            (error.status === 503 || error.status === 504);
+
+          const canUseStockFallback =
+            isServiceUnavailable &&
+            isInventoryQuestion(question) &&
+            (context === "general" || context === "shopping");
+
+          if (!canUseStockFallback) {
+            throw error;
+          }
+
+          say(
+            "assistant",
+            "Layanan AI sedang mengalami gangguan. Aku akan mencoba memeriksa stok langsung dari inventory."
+          );
+
+          try {
+            const available = await getItems(signal);
+
+            if (signal.aborted) return;
+
+            say(
+              "assistant",
+              [
+                stockSummary(available),
+                "Catatan: Ini adalah ringkasan stok langsung dari inventory, bukan hasil analisis AI atau prediksi kebutuhan.",
+              ].join("\n\n")
+            );
+          } catch (inventoryError) {
+            if (signal.aborted) return;
+
+            say(
+              "assistant",
+              inventoryError instanceof ApiRequestError &&
+                inventoryError.status === 401
+                ? "Sesi login kamu sudah berakhir. Silakan login kembali untuk memeriksa inventory."
+                : "Gemini sedang mengalami gangguan dan data inventory juga belum berhasil dimuat. Silakan coba kembali beberapa saat lagi atau gunakan halaman Inventory untuk memeriksa stok."
+            );
+          }
+
           return;
         }
-        const selected = available.find(i => i.id === data.item_id);
-        if (!selected) {
-          updateStep({ kind: "item", mode: data.action });
-          say("assistant", "Pilih bahan yang ingin dianalisis dari daftar berikut.");
-        } else if (data.lead_time_days !== null && Number.isInteger(data.lead_time_days) &&
-                   data.lead_time_days >= 1 && data.lead_time_days <= 365) {
-          nextPrediction = { mode: data.action, item: selected, days: data.lead_time_days };
-        } else {
-          updateStep({ kind: "lead-time", mode: data.action, item: selected });
-          say("assistant", `Berapa hari waktu tunggu supplier untuk ${selected.name}?`);
+
+        if (
+          typeof data.answer !== "string" ||
+          !data.answer.trim()
+        ) {
+          throw new Error(
+            "Jawaban Bready belum tersedia. Coba lagi, ya."
+          );
         }
-      }
-    }, "Bready sedang menyusun jawaban...");
-    // Run only after runTask releases the duplicate-submit lock.
-    if (mounted.current && nextPrediction) {
-      const next = nextPrediction as { mode: Mode; item: Item; days: number };
-      await generate(next.mode, next.item, next.days);
+
+        say("assistant", data.answer);
+
+        if (
+          context === "general" &&
+          (data.action === "predict" || data.action === "rag")
+        ) {
+          const available = await getItems(signal);
+
+          if (signal.aborted) return;
+
+          if (!available.length) {
+            say(
+              "assistant",
+              "Belum ada bahan aktif. Tambahkan bahan di Inventory terlebih dahulu."
+            );
+            return;
+          }
+
+          const selected = available.find(
+            (item) => item.id === data.item_id
+          );
+
+          if (!selected) {
+            updateStep({
+              kind: "item",
+              mode: data.action,
+            });
+
+            say(
+              "assistant",
+              "Pilih bahan yang ingin dianalisis dari daftar berikut."
+            );
+          } else if (
+            data.lead_time_days !== null &&
+            Number.isInteger(data.lead_time_days) &&
+            data.lead_time_days >= 1 &&
+            data.lead_time_days <= 365
+          ) {
+            nextPrediction.current = {
+              mode: data.action,
+              item: selected,
+              days: data.lead_time_days,
+            };
+          } else {
+            updateStep({
+              kind: "lead-time",
+              mode: data.action,
+              item: selected,
+            });
+
+            say(
+              "assistant",
+              `Berapa hari waktu tunggu supplier untuk ${selected.name}?`
+            );
+          }
+        }
+      },
+      "Bready sedang menyusun jawaban..."
+    );
+
+    // Prediksi dijalankan setelah runTask melepas lock.
+    const prediction = nextPrediction.current;
+
+    if (mounted.current && prediction) {
+      await generate(
+        prediction.mode,
+        prediction.item,
+        prediction.days
+      );
     }
   }
 
@@ -636,88 +869,90 @@ export default function BreadyChatPanel({
     if (!question || busy.current) return;
 
     const active = stepRef.current;
+
     if (!active && !/^(batal|cancel|stop)$/i.test(question)) {
       void askBready(question);
       return;
     }
+
     say("user", question);
     setInput("");
 
     if (/^(batal|cancel|stop)$/i.test(question)) {
       leaveAdvice();
+
       say(
         "assistant",
         "Oke, kita batalkan dulu. Ada yang lain yang mau dicek?"
       );
+
       return;
     }
 
     if (!active) return;
 
     if (active.kind === "item") {
-      void runTask(async (signal) => {
-        const available = inventoryReady
-          ? itemsRef.current
-          : await getItems(signal);
+      void runTask(
+        async (signal) => {
+          const available = inventoryReady
+            ? itemsRef.current
+            : await getItems(signal);
 
-        const normalized = question.toLocaleLowerCase(
-          "id-ID"
-        );
+          if (signal.aborted) return;
 
-        const exact = available.filter(
-          (item) =>
-            item.name.toLocaleLowerCase("id-ID") ===
-            normalized
-        );
+          const normalized = question.toLocaleLowerCase("id-ID");
 
-        const partial = available.filter((item) =>
-          item.name
-            .toLocaleLowerCase("id-ID")
-            .includes(normalized)
-        );
-
-        const matches = exact.length
-          ? exact
-          : partial;
-
-        if (matches.length === 1) {
-          const item = matches[0];
-
-          updateStep({
-            kind: "lead-time",
-            mode: active.mode,
-            item,
-          });
-
-          say(
-            "assistant",
-            `${item.name}, siap. Berapa hari waktu tunggu suppliernya?`
+          const exact = available.filter(
+            (item) =>
+              item.name.toLocaleLowerCase("id-ID") === normalized
           );
-        } else if (matches.length > 1) {
-          say(
-            "assistant",
-            "Aku menemukan beberapa bahan yang mirip. Pilih salah satu dari daftar di bawah, ya."
+
+          const partial = available.filter((item) =>
+            item.name
+              .toLocaleLowerCase("id-ID")
+              .includes(normalized)
           );
-          setSearch(question);
-        } else {
-          say(
-            "assistant",
-            "Aku belum menemukan bahan itu. Coba pilih dari daftar atau ketik nama yang sesuai inventory."
-          );
-          setSearch("");
-        }
-      });
+
+          const matches = exact.length ? exact : partial;
+
+          if (matches.length === 1) {
+            const item = matches[0];
+
+            updateStep({
+              kind: "lead-time",
+              mode: active.mode,
+              item,
+            });
+
+            say(
+              "assistant",
+              `${item.name}, siap. Berapa hari waktu tunggu suppliernya?`
+            );
+          } else if (matches.length > 1) {
+            say(
+              "assistant",
+              "Aku menemukan beberapa bahan yang mirip. Pilih salah satu dari daftar di bawah, ya."
+            );
+
+            setSearch(question);
+          } else {
+            say(
+              "assistant",
+              "Aku belum menemukan bahan itu. Coba pilih dari daftar atau ketik nama yang sesuai inventory."
+            );
+
+            setSearch("");
+          }
+        },
+        "Bready sedang mencari bahan..."
+      );
 
       return;
     }
 
-    const match = question.match(
-      /^(\d{1,3})(?:\s*hari)?$/i
-    );
+    const match = question.match(/^(\d{1,3})(?:\s*hari)?$/i);
 
-    const days = match
-      ? Number(match[1])
-      : NaN;
+    const days = match ? Number(match[1]) : NaN;
 
     if (
       !Number.isSafeInteger(days) ||
@@ -728,15 +963,14 @@ export default function BreadyChatPanel({
         "assistant",
         "Waktu tunggunya bisa antara 1 sampai 365 hari. Contohnya 3 hari."
       );
+
       return;
     }
 
     void generate(active.mode, active.item, days);
   }
 
-  function handleSubmit(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     submitText(input);
   }
@@ -762,6 +996,7 @@ export default function BreadyChatPanel({
           <h2 className="font-bold text-[#343b32]">
             Bready
           </h2>
+
           <p className="text-xs text-[#7a8775]">
             Your Bakery Copilot
           </p>
@@ -875,17 +1110,32 @@ export default function BreadyChatPanel({
         )}
 
         {showAdvice && (
-          <div aria-label="Pilihan saran" className="space-y-2">
-            {ADVICE_OPTIONS.map(option => (
-              <button key={option.context} type="button" disabled={loading}
-                onClick={() => void askBready(option.question, option.context)}
-                className="block w-full rounded-2xl border border-[#8fa58a]/25 bg-white/80 px-4 py-3 text-left transition-colors hover:bg-[#edf1e8] focus-visible:outline-2 focus-visible:outline-[#536d50] disabled:opacity-50">
-                <span className="block text-sm font-semibold text-[#536d50]">{option.label}</span>
-                <span className="mt-1 block text-xs leading-relaxed text-[#7a8775]">{option.description}</span>
+          <div
+            aria-label="Pilihan saran"
+            className="space-y-2"
+          >
+            {ADVICE_OPTIONS.map((option) => (
+              <button
+                key={option.context}
+                type="button"
+                disabled={loading}
+                onClick={() =>
+                  void askBready(option.question, option.context)
+                }
+                className="block w-full rounded-2xl border border-[#8fa58a]/25 bg-white/80 px-4 py-3 text-left transition-colors hover:bg-[#edf1e8] focus-visible:outline-2 focus-visible:outline-[#536d50] disabled:opacity-50"
+              >
+                <span className="block text-sm font-semibold text-[#536d50]">
+                  {option.label}
+                </span>
+
+                <span className="mt-1 block text-xs leading-relaxed text-[#7a8775]">
+                  {option.description}
+                </span>
               </button>
             ))}
           </div>
         )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -925,20 +1175,39 @@ export default function BreadyChatPanel({
 
       {chatContext !== "general" && (
         <div className="mx-4 mt-2 flex items-center justify-between gap-2 text-xs text-[#536d50]">
-          <span>Saran: {ADVICE_OPTIONS.find(option => option.context === chatContext)?.label ?? "Bakery"}</span>
-          <button type="button" disabled={loading} onClick={leaveAdvice}
-            className="min-h-9 rounded-lg px-2 underline focus-visible:outline-2 disabled:opacity-50">
+          <span>
+            Saran:{" "}
+            {ADVICE_OPTIONS.find(
+              (option) => option.context === chatContext
+            )?.label ?? "Bakery"}
+          </span>
+
+          <button
+            type="button"
+            disabled={loading}
+            onClick={leaveAdvice}
+            className="min-h-9 rounded-lg px-2 underline focus-visible:outline-2 disabled:opacity-50"
+          >
             Kembali ke chat bebas
           </button>
         </div>
       )}
+
       {step && (
-        <button type="button" disabled={loading}
-          onClick={() => { updateStep(null); setSearch(""); inputRef.current?.focus(); }}
-          className="mx-4 mt-2 min-h-9 rounded-xl text-xs font-medium text-[#536d50] underline disabled:opacity-50">
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => {
+            updateStep(null);
+            setSearch("");
+            inputRef.current?.focus();
+          }}
+          className="mx-4 mt-2 min-h-9 rounded-xl text-xs font-medium text-[#536d50] underline disabled:opacity-50"
+        >
           Kembali ke chat bebas
         </button>
       )}
+
       <form
         onSubmit={handleSubmit}
         className="shrink-0 px-3 pb-4 pt-3"
@@ -947,9 +1216,7 @@ export default function BreadyChatPanel({
           <input
             ref={inputRef}
             value={input}
-            onChange={(event) =>
-              setInput(event.target.value)
-            }
+            onChange={(event) => setInput(event.target.value)}
             disabled={loading}
             maxLength={1000}
             placeholder={
@@ -957,7 +1224,9 @@ export default function BreadyChatPanel({
                 ? "Ketik nama bahan..."
                 : step?.kind === "lead-time"
                   ? "Contoh: 3 hari"
-                  : chatContext !== "general" ? "Ceritakan kebutuhan bakerymu..." : "Tanya Bready..."
+                  : chatContext !== "general"
+                    ? "Ceritakan kebutuhan bakerymu..."
+                    : "Tanya Bready..."
             }
             aria-label="Pesan untuk Bready"
             className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm text-[#343b32] outline-none placeholder:text-[#7a8775]"

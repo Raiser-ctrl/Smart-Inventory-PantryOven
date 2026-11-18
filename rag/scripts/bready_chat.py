@@ -1,11 +1,13 @@
+
 """Bounded bakery conversation; operational predictions use the existing ML flow."""
+
 import json
 import logging
 from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel, ConfigDict, Field
 
 from rag.scripts.generate_summary import generate_with_retry
@@ -121,42 +123,142 @@ Aturan ruang lingkup bakery dan kejujuran data tetap berlaku untuk semua mode.
 
 def answer_chat(payload: ChatRequest) -> ChatResponse:
     if not payload.message.strip():
-        raise HTTPException(status_code=422, detail="Pesan tidak boleh kosong.")
-    prompt = json.dumps({
-        "message": payload.message,
-        "selected_advice_topic": payload.context,
-        "untrusted_history": [m.model_dump() for m in payload.history],
-        "inventory_server": [i.model_dump(mode="json") for i in payload.inventory]
-            if payload.inventory_status != "unavailable" else [],
-        "inventory_status": payload.inventory_status,
-    }, ensure_ascii=False)
+        raise HTTPException(
+            status_code=422,
+            detail="Pesan tidak boleh kosong.",
+        )
+
+    prompt = json.dumps(
+        {
+            "message": payload.message,
+            "selected_advice_topic": payload.context,
+            "untrusted_history": [
+                message.model_dump() for message in payload.history
+            ],
+            "inventory_server": [
+                item.model_dump(mode="json") for item in payload.inventory
+            ] if payload.inventory_status != "unavailable" else [],
+            "inventory_status": payload.inventory_status,
+        },
+        ensure_ascii=False,
+    )
+
     try:
         response = generate_with_retry(
             prompt=prompt,
-            system_instruction=SYSTEM + (ADVICE_RULES if payload.context != "general" else ""),
+            system_instruction=(
+                SYSTEM
+                + (
+                    ADVICE_RULES
+                    if payload.context != "general"
+                    else ""
+                )
+            ),
         )
-        if not response.candidates or response.candidates[0].finish_reason != types.FinishReason.STOP:
-            raise ValueError("Incomplete response")
+
+        if (
+            not response.candidates
+            or response.candidates[0].finish_reason
+            != types.FinishReason.STOP
+        ):
+            raise ValueError("Incomplete Gemini response")
+
         raw = (response.text or "").strip()
-        # Tolerate a JSON fence only; reject prose/malformed structured output.
+
+        # Tolerate a JSON fence only; reject prose/malformed output.
         if raw.startswith("```json\n") and raw.endswith("```"):
             raw = raw[8:-3].strip()
+
         result = ChatResponse.model_validate_json(raw)
+
         if not result.answer.strip():
             raise ValueError("Empty answer")
+
         if result.item_id is not None and (
-            payload.inventory_status == "unavailable" or
-            result.item_id not in {i.id for i in payload.inventory}
+            payload.inventory_status == "unavailable"
+            or result.item_id not in {
+                item.id for item in payload.inventory
+            }
         ):
             result.item_id = None
+
         if payload.context != "general" and result.action is not None:
-            # Deterministic guard: a model action can never start prediction in advice mode.
-            result.answer = "Untuk prediksi kebutuhan, pilih Cek Kebutuhan. Di sini aku bisa bantu ide olahan, prioritas belanja dari stok saat ini, atau pemanfaatan bahan. Mau fokus ke yang mana?"
+            result.answer = (
+                "Untuk prediksi kebutuhan, pilih Cek Kebutuhan. "
+                "Di sini aku bisa bantu ide olahan, prioritas belanja "
+                "dari stok saat ini, atau pemanfaatan bahan. "
+                "Mau fokus ke yang mana?"
+            )
             result.action = None
+
         if result.action is None:
             result.item_id = None
             result.lead_time_days = None
+
         return result
+
+    except HTTPException:
+        raise
+
+    except errors.APIError as error:
+        status_code = (
+            getattr(error, "code", None)
+            or getattr(error, "status_code", None)
+        )
+
+        logger.exception(
+            "Gemini API request failed. HTTP status: %s",
+            status_code,
+        )
+
+        if status_code == 503:
+            raise HTTPException(
+                status_code=503,
+                detail="Layanan AI sedang sibuk. Silakan coba lagi nanti.",
+            ) from error
+
+        if status_code == 504:
+            raise HTTPException(
+                status_code=504,
+                detail="Layanan AI membutuhkan waktu terlalu lama. Silakan coba lagi nanti.",
+            ) from error
+
+        raise HTTPException(
+            status_code=502,
+            detail="Layanan AI gagal memproses permintaan.",
+        ) from error
+
+    except (TimeoutError,):
+        logger.exception("Gemini request timed out")
+
+        raise HTTPException(
+            status_code=504,
+            detail="Layanan AI membutuhkan waktu terlalu lama. Silakan coba lagi nanti.",
+        ) from None
+
+    except ConnectionError as error:
+        logger.exception("Gemini connection failed")
+
+        raise HTTPException(
+            status_code=503,
+            detail="Layanan AI sementara tidak dapat dihubungi.",
+        ) from error
+
+    except (ValueError,):
+        logger.exception("Gemini returned an invalid response")
+
+        raise HTTPException(
+            status_code=502,
+            detail="Respons dari layanan AI tidak valid.",
+        ) from None
+
     except Exception as error:
-        logger.warning("Bready chat failed: %s", type(error).__name__)
-        raise HTTPException(status_code=502, detail="Bready belum dapat menjawab. Coba lagi.") from error
+        logger.exception(
+            "Unexpected Bready chat error: %s",
+            type(error).__name__,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Terjadi kesalahan internal saat memproses pesan.",
+        ) from error

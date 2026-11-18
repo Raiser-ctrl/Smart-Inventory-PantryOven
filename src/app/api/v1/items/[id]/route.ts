@@ -1,7 +1,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { verifyApiStaff } from "@/lib/api-auth";
+import {
+  verifyApiAdmin,
+  verifyApiStaff,
+} from "@/lib/api-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -33,6 +36,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
 
 const MAX_STOCK = 1_000_000_000;
 const MAX_NAME_LENGTH = 150;
+const MAX_BODY_SIZE = 10 * 1024;
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -48,7 +52,6 @@ type ItemInput = {
   minimum_stock: number;
 };
 
-// Return consistent API errors
 function jsonError(message: string, status: number) {
   return NextResponse.json(
     {
@@ -62,7 +65,7 @@ function jsonError(message: string, status: number) {
   );
 }
 
-// Verify same-origin mutations
+// Verify same-origin mutations.
 function verifyOrigin(request: NextRequest) {
   const configuredOrigin =
     process.env.APP_ORIGIN ??
@@ -116,7 +119,7 @@ function verifyOrigin(request: NextRequest) {
   return null;
 }
 
-// Validate JSON requests
+// Validate JSON requests.
 function verifyJsonContentType(request: NextRequest) {
   const contentType =
     request.headers.get("content-type") ?? "";
@@ -131,7 +134,114 @@ function verifyJsonContentType(request: NextRequest) {
   return null;
 }
 
-// Authorize write operations
+// Check declared body size before parsing.
+function verifyBodySize(request: NextRequest) {
+  const contentLength = request.headers.get("content-length");
+
+  if (contentLength !== null) {
+    if (!/^\d+$/.test(contentLength)) {
+      return jsonError(
+        "Content-Length tidak valid.",
+        400
+      );
+    }
+
+    if (Number(contentLength) > MAX_BODY_SIZE) {
+      return jsonError(
+        "Ukuran request terlalu besar.",
+        413
+      );
+    }
+  }
+
+  return null;
+}
+
+// Read JSON with an actual byte-size limit.
+async function readJsonBody(
+  request: NextRequest
+): Promise<
+  | { success: true; data: unknown }
+  | { success: false; response: NextResponse }
+> {
+  const sizeError = verifyBodySize(request);
+
+  if (sizeError) {
+    return {
+      success: false,
+      response: sizeError,
+    };
+  }
+
+  try {
+    if (!request.body) {
+      return {
+        success: false,
+        response: jsonError(
+          "Request body wajib diisi.",
+          400
+        ),
+      };
+    }
+
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalSize = 0;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        totalSize += value.byteLength;
+
+        if (totalSize > MAX_BODY_SIZE) {
+          await reader.cancel();
+
+          return {
+            success: false,
+            response: jsonError(
+              "Ukuran request terlalu besar.",
+              413
+            ),
+          };
+        }
+
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const combined = new Uint8Array(totalSize);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    const text = new TextDecoder("utf-8", {
+      fatal: true,
+    }).decode(combined);
+
+    return {
+      success: true,
+      data: JSON.parse(text),
+    };
+  } catch {
+    return {
+      success: false,
+      response: jsonError(
+        "Format JSON tidak valid.",
+        400
+      ),
+    };
+  }
+}
+
+// Authorize Staff/Admin mutations.
 async function verifyMutation(request: NextRequest) {
   const auth = await verifyApiStaff();
 
@@ -142,7 +252,18 @@ async function verifyMutation(request: NextRequest) {
   return verifyOrigin(request);
 }
 
-// Validate inventory update payload
+// Authorize Admin-only mutations.
+async function verifyAdminMutation(request: NextRequest) {
+  const auth = await verifyApiAdmin();
+
+  if (!auth.authorized) {
+    return jsonError(auth.message, auth.status);
+  }
+
+  return verifyOrigin(request);
+}
+
+// Validate inventory update payload.
 function validateItemInput(
   body: unknown
 ):
@@ -161,7 +282,6 @@ function validateItemInput(
 
   const input = body as Record<string, unknown>;
 
-  // Reject unexpected fields
   if (
     Object.keys(input).some(
       (key) => !ALLOWED_UPDATE_FIELDS.has(key)
@@ -182,7 +302,6 @@ function validateItemInput(
   const unit = input.unit;
   const minimumStock = input.minimum_stock;
 
-  // Validate item name
   if (
     name.length === 0 ||
     name.length > MAX_NAME_LENGTH
@@ -194,7 +313,6 @@ function validateItemInput(
     };
   }
 
-  // Validate category
   if (
     typeof category !== "string" ||
     !VALID_CATEGORIES.some(
@@ -207,7 +325,6 @@ function validateItemInput(
     };
   }
 
-  // Validate unit
   if (
     typeof unit !== "string" ||
     !VALID_UNITS.some(
@@ -220,7 +337,6 @@ function validateItemInput(
     };
   }
 
-  // Validate minimum stock
   if (
     typeof minimumStock !== "number" ||
     !Number.isFinite(minimumStock) ||
@@ -245,28 +361,40 @@ function validateItemInput(
   };
 }
 
-// Check whether an item has transaction history
-async function hasTransactions(itemId: string) {
-  const { data, error } = await supabaseAdmin
-    .from("stock_transactions")
-    .select("id")
-    .eq("item_id", itemId)
-    .limit(1);
-
-  if (error) {
-    throw error;
+// Validate the returned item from update RPC.
+function isValidUpdatedItem(data: unknown): boolean {
+  if (!data || typeof data !== "object") {
+    return false;
   }
 
-  return Boolean(data?.length);
+  const item = data as Record<string, unknown>;
+
+  return (
+    typeof item.id === "string" &&
+    UUID_REGEX.test(item.id) &&
+    typeof item.name === "string" &&
+    VALID_CATEGORIES.some(
+      (value) => value === item.category
+    ) &&
+    VALID_UNITS.some(
+      (value) => value === item.unit
+    ) &&
+    typeof item.initial_stock === "number" &&
+    Number.isFinite(item.initial_stock) &&
+    typeof item.minimum_stock === "number" &&
+    Number.isFinite(item.minimum_stock) &&
+    item.minimum_stock >= 0 &&
+    item.minimum_stock <= MAX_STOCK
+  );
 }
 
 // PATCH /api/v1/items/[id]
+// Admin and active Staff can update items.
 export async function PATCH(
   request: NextRequest,
   context: RouteContext
 ) {
   try {
-    // Verify account permissions and origin
     const securityError = await verifyMutation(request);
 
     if (securityError) {
@@ -286,19 +414,13 @@ export async function PATCH(
       return contentTypeError;
     }
 
-    // Parse request body
-    let body: unknown;
+    const parsed = await readJsonBody(request);
 
-    try {
-      body = await request.json();
-    } catch {
-      return jsonError(
-        "Format JSON tidak valid.",
-        400
-      );
+    if (!parsed.success) {
+      return parsed.response;
     }
 
-    const validation = validateItemInput(body);
+    const validation = validateItemInput(parsed.data);
 
     if (!validation.valid) {
       return jsonError(validation.message, 400);
@@ -311,7 +433,6 @@ export async function PATCH(
       minimum_stock,
     } = validation.data;
 
-    // Update item atomically through PostgreSQL RPC
     const { data, error } = await supabaseAdmin.rpc(
       "update_inventory_item",
       {
@@ -341,9 +462,7 @@ export async function PATCH(
       }
 
       if (
-        message.includes(
-          "UNIT_CHANGE_HAS_TRANSACTIONS"
-        )
+        message.includes("UNIT_CHANGE_HAS_TRANSACTIONS")
       ) {
         return jsonError(
           "Satuan barang tidak dapat diubah karena sudah memiliki riwayat transaksi.",
@@ -370,7 +489,7 @@ export async function PATCH(
       );
     }
 
-    if (!data || typeof data !== "object") {
+    if (!isValidUpdatedItem(data)) {
       console.error(
         "PATCH item RPC returned invalid data."
       );
@@ -381,17 +500,19 @@ export async function PATCH(
       );
     }
 
+    const item = data as Record<string, unknown>;
+
     return NextResponse.json(
       {
         success: true,
         message: "Barang berhasil diperbarui.",
         data: {
-          id: data.id,
-          name: data.name,
-          category: data.category,
-          unit: data.unit,
-          initial_stock: data.initial_stock,
-          minimum_stock: data.minimum_stock,
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          unit: item.unit,
+          initial_stock: item.initial_stock,
+          minimum_stock: item.minimum_stock,
         },
       },
       {
@@ -405,18 +526,22 @@ export async function PATCH(
       error
     );
 
-    return jsonError("Internal Server Error", 500);
+    return jsonError(
+      "Internal Server Error",
+      500
+    );
   }
 }
 
 // DELETE /api/v1/items/[id]
+// Admin only. Performs soft deletion through archive RPC.
 export async function DELETE(
   request: NextRequest,
   context: RouteContext
 ) {
   try {
-    // Verify account permissions and origin
-    const securityError = await verifyMutation(request);
+    const securityError =
+      await verifyAdminMutation(request);
 
     if (securityError) {
       return securityError;
@@ -428,89 +553,70 @@ export async function DELETE(
       return jsonError("ID barang tidak valid.", 400);
     }
 
-    // Read item state
-    const { data: existing, error: lookupError } =
-      await supabaseAdmin
-        .from("items")
-        .select("id, archived_at")
-        .eq("id", id)
-        .maybeSingle();
-
-    if (lookupError) {
-      console.error("DELETE item lookup error:", {
-        code: lookupError.code,
-        message: lookupError.message,
-      });
-
-      return jsonError(
-        "Gagal memeriksa data barang.",
-        500
-      );
-    }
-
-    if (!existing) {
-      return jsonError(
-        "Barang tidak ditemukan.",
-        404
-      );
-    }
-
-    if (existing.archived_at !== null) {
-      return jsonError(
-        "Barang sudah diarsipkan. Aktifkan kembali sebelum menghapus barang.",
-        409
-      );
-    }
-
-    // Prevent deleting items with transaction history
-    if (await hasTransactions(id)) {
-      return jsonError(
-        "Barang tidak dapat dihapus karena memiliki riwayat transaksi.",
-        409
-      );
-    }
-
-    // Delete only active items
-    const { data, error } = await supabaseAdmin
-      .from("items")
-      .delete()
-      .eq("id", id)
-      .is("archived_at", null)
-      .select("id")
-      .maybeSingle();
+    const { data, error } = await supabaseAdmin.rpc(
+      "archive_inventory_item",
+      {
+        p_item_id: id,
+      }
+    );
 
     if (error) {
-      // Foreign key protects concurrent transactions
-      if (error.code === "23503") {
+      const message = error.message;
+
+      if (message.includes("ITEM_NOT_FOUND")) {
         return jsonError(
-          "Barang tidak dapat dihapus karena masih digunakan oleh data lain.",
+          "Barang tidak ditemukan.",
+          404
+        );
+      }
+
+      if (message.includes("ITEM_ALREADY_ARCHIVED")) {
+        return jsonError(
+          "Barang sudah diarsipkan.",
           409
         );
       }
 
-      console.error("DELETE item error:", {
+      console.error("DELETE item archive RPC error:", {
         code: error.code,
         message: error.message,
         details: error.details,
       });
 
       return jsonError(
-        "Gagal menghapus barang.",
+        "Gagal mengarsipkan barang.",
         500
       );
     }
 
-    if (!data) {
+    if (
+      !data ||
+      typeof data !== "object" ||
+      typeof data.id !== "string" ||
+      !UUID_REGEX.test(data.id) ||
+      typeof data.name !== "string" ||
+      typeof data.archived_at !== "string" ||
+      !Number.isFinite(Date.parse(data.archived_at))
+    ) {
+      console.error(
+        "Archive item RPC returned invalid data."
+      );
+
       return jsonError(
-        "Status barang sudah berubah. Silakan muat ulang.",
-        409
+        "Respons database tidak valid.",
+        500
       );
     }
 
     return NextResponse.json(
       {
         success: true,
-        message: "Barang berhasil dihapus.",
+        message: "Barang berhasil diarsipkan.",
+        data: {
+          id: data.id,
+          name: data.name,
+          archived_at: data.archived_at,
+        },
       },
       {
         status: 200,
@@ -523,6 +629,9 @@ export async function DELETE(
       error
     );
 
-    return jsonError("Internal Server Error", 500);
+    return jsonError(
+      "Internal Server Error",
+      500
+    );
   }
 }
