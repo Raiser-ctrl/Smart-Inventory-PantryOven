@@ -309,7 +309,6 @@ function calculateUsageMetrics(
     totalUsage += quantity;
     usageCount += 1;
 
-    // Konsisten menggunakan tanggal kalender UTC.
     usageDates.add(date.toISOString().slice(0, 10));
   }
 
@@ -343,8 +342,6 @@ async function getUsageTransactions(
   try {
     let offset = 0;
 
-    // Mengambil maksimal 10.001 baris.
-    // Baris ke-10.001 menjadi penanda bahwa data terpotong.
     while (offset <= MAX_USAGE_TRANSACTIONS) {
       const pageSize = Math.min(
         TRANSACTION_PAGE_SIZE,
@@ -416,8 +413,6 @@ function getStockStatus(
   currentStock: number,
   minimumStock: number
 ): StockStatus {
-  // Belum ada maximum_stock, sehingga status Excess
-  // tidak boleh disimpulkan dari data yang tersedia.
   return currentStock <= minimumStock
     ? "Restock"
     : "Sufficient";
@@ -739,7 +734,7 @@ export async function POST(request: NextRequest) {
 
       if (response.status === 429) {
         return jsonError(
-          "Permintaan AI sedang terlalu banyak. Silakan coba beberapa saat lagi.",
+          "Kuota AI sedang mencapai batas. Pertanyaan stok dan pemakaian tetap dapat dijawab dari data inventaris.",
           429
         );
       }

@@ -3,6 +3,7 @@
 
 import json
 import logging
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -221,6 +222,284 @@ class ChatResponse(StrictModel):
         ge=1,
         le=365,
         strict=True,
+    )
+
+
+# ==========================================
+# INVENTORY INTENT DETECTION
+# ==========================================
+
+PREDICTION_PATTERN = re.compile(
+    r"\b("
+    r"prediksi|peramalan|forecast|ramalkan|"
+    r"prediksikan|perkiraan kebutuhan|"
+    r"estimasi kebutuhan|prediksi restock|"
+    r"prediksi pembelian"
+    r")\b",
+    re.IGNORECASE,
+)
+
+INVENTORY_PATTERN = re.compile(
+    r"\b("
+    r"stok|stock|inventaris|inventory|"
+    r"restock|restok|persediaan|"
+    r"bahan baku|stok minimum|"
+    r"kondisi stok|stok saat ini|"
+    r"bahan menipis|bahan habis|"
+    r"perlu dibeli|prioritas belanja"
+    r")\b",
+    re.IGNORECASE,
+)
+
+USAGE_PATTERN = re.compile(
+    r"\b("
+    r"pemakaian|penggunaan|terpakai|"
+    r"riwayat penggunaan|riwayat pemakaian|"
+    r"rata-rata penggunaan|rata rata penggunaan|"
+    r"rata-rata pemakaian|rata rata pemakaian|"
+    r"konsumsi bahan"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_deterministic_inventory_question(
+    message: str,
+) -> bool:
+    """
+    Deteksi pertanyaan inventaris yang dapat dijawab
+    langsung dari data server.
+
+    Permintaan prediksi selalu dikecualikan agar
+    tetap melewati alur prediksi yang sudah ada.
+    """
+
+    if PREDICTION_PATTERN.search(message):
+        return False
+
+    return bool(
+        INVENTORY_PATTERN.search(message)
+        or USAGE_PATTERN.search(message)
+    )
+
+
+# ==========================================
+# DETERMINISTIC INVENTORY ANSWERS
+# ==========================================
+
+def get_relevant_inventory(
+    payload: ChatRequest,
+) -> list[InventoryItem]:
+    """
+    Mengembalikan data inventaris yang relevan.
+
+    Jika pengguna menyebut bahan baku, data kategori
+    bahan baku diprioritaskan berdasarkan kategori
+    yang memang dikenali sistem.
+    """
+
+    items = payload.inventory
+
+    if re.search(
+        r"\bbahan baku\b",
+        payload.message,
+        re.IGNORECASE,
+    ):
+        raw_material_items = [
+            item
+            for item in items
+            if (
+                item.category or ""
+            ).strip().lower().replace("-", "_").replace(" ", "_")
+            in {
+                "raw_material",
+                "raw_materials",
+                "bahan_baku",
+            }
+        ]
+
+        if raw_material_items:
+            return raw_material_items
+
+    return items
+
+
+def build_inventory_answer(
+    payload: ChatRequest,
+) -> ChatResponse:
+    """
+    Menjawab pertanyaan stok dan pemakaian
+    berdasarkan data inventaris server.
+
+    Tidak menggunakan Gemini.
+    Tidak membuat prediksi.
+    Tidak mengubah database.
+    """
+
+    if payload.inventory_status == "unavailable":
+        return ChatResponse(
+            answer=(
+                "Data inventaris belum dapat diperiksa saat ini. "
+                "Aku belum bisa memberikan ringkasan stok atau "
+                "pemakaian yang akurat. Silakan coba lagi nanti."
+            )
+        )
+
+    items = get_relevant_inventory(payload)
+
+    if not items:
+        return ChatResponse(
+            answer=(
+                "Belum ada data inventaris yang dapat ditampilkan "
+                "untuk permintaan ini."
+            )
+        )
+
+    # ======================================
+    # USAGE SUMMARY
+    # ======================================
+
+    if USAGE_PATTERN.search(payload.message):
+        lines = [
+            "Ringkasan pemakaian berdasarkan transaksi usage "
+            "pada periode pengamatan:"
+        ]
+
+        for item in items:
+            if item.usage_count is None:
+                lines.append(
+                    f"- {item.name}: data transaksi pemakaian "
+                    "belum dapat diperiksa."
+                )
+                continue
+
+            if item.usage_count == 0:
+                lines.append(
+                    f"- {item.name}: belum ada transaksi usage "
+                    "yang tercatat pada periode pengamatan."
+                )
+                continue
+
+            if item.average_daily_usage is None:
+                lines.append(
+                    f"- {item.name}: tercatat "
+                    f"{item.usage_count} transaksi pemakaian, "
+                    "tetapi rata-rata penggunaan harian "
+                    "belum tersedia."
+                )
+                continue
+
+            period = item.usage_period_days
+
+            if period is None:
+                lines.append(
+                    f"- {item.name}: rata-rata penggunaan "
+                    f"{item.average_daily_usage:g} {item.unit}/hari."
+                )
+            else:
+                lines.append(
+                    f"- {item.name}: rata-rata penggunaan "
+                    f"{item.average_daily_usage:g} {item.unit}/hari "
+                    f"berdasarkan periode {period} hari."
+                )
+
+            lines.append(
+                f"  Tercatat {item.usage_count} transaksi "
+                f"pada {item.usage_days or 0} hari aktif."
+            )
+
+            if item.data_quality == "insufficient":
+                lines.append(
+                    "  Kualitas data belum cukup untuk "
+                    "menyimpulkan pola penggunaan yang andal."
+                )
+            elif item.data_quality == "limited":
+                lines.append(
+                    "  Data penggunaan masih terbatas, "
+                    "sehingga rata-ratanya perlu dibaca hati-hati."
+                )
+
+        if payload.inventory_status == "partial":
+            lines.append(
+                "Catatan: data inventaris yang diterima hanya sebagian. "
+                "Ringkasan ini belum mewakili seluruh inventaris."
+            )
+
+        lines.append(
+            "Catatan: ringkasan ini menggunakan transaksi usage. "
+            "Transaksi stock_out tidak dihitung sebagai pemakaian."
+        )
+
+        return ChatResponse(
+            answer="\n".join(lines)
+        )
+
+    # ======================================
+    # CURRENT STOCK SUMMARY
+    # ======================================
+
+    restock_items = [
+        item
+        for item in items
+        if (
+            item.stock_status == "Restock"
+            or (
+                item.stock_status is None
+                and item.current_stock <= item.minimum_stock
+            )
+        )
+    ]
+
+    sufficient_items = [
+        item
+        for item in items
+        if item.stock_status == "Sufficient"
+    ]
+
+    lines = [
+        "Ringkasan kondisi stok berdasarkan data inventaris saat ini:"
+    ]
+
+    if restock_items:
+        lines.append("")
+        lines.append("Bahan yang perlu direstock:")
+
+        for item in restock_items:
+            lines.append(
+                f"- {item.name}: stok saat ini "
+                f"{item.current_stock:g} {item.unit}, "
+                f"sedangkan batas minimum "
+                f"{item.minimum_stock:g} {item.unit}."
+            )
+    else:
+        lines.append("")
+        lines.append(
+            "Tidak ada bahan yang terdeteksi mencapai "
+            "atau berada di bawah batas stok minimum."
+        )
+
+    lines.append("")
+    lines.append(
+        f"Total bahan yang diperiksa: {len(items)}."
+    )
+
+    if payload.inventory_status == "partial":
+        lines.append(
+            "Catatan: data yang diterima hanya sebagian, "
+            "sehingga hasil ini belum mewakili seluruh inventaris."
+        )
+    else:
+        lines.append(
+            f"Bahan berstatus Sufficient: {len(sufficient_items)}."
+        )
+
+    lines.append(
+        "Status ini berdasarkan stok aktual dan batas minimum, "
+        "bukan prediksi kebutuhan produksi."
+    )
+
+    return ChatResponse(
+        answer="\n".join(lines)
     )
 
 
@@ -532,6 +811,66 @@ Aturan ruang lingkup bakery dan kejujuran data tetap berlaku untuk semua mode.
 
 
 # ==========================================
+# RESPONSE VALIDATION
+# ==========================================
+
+def validate_chat_result(
+    result: ChatResponse,
+    payload: ChatRequest,
+) -> ChatResponse:
+    available_item_ids = {
+        item.id
+        for item in payload.inventory
+    }
+
+    if (
+        result.item_id is not None
+        and (
+            payload.inventory_status == "unavailable"
+            or result.item_id not in available_item_ids
+        )
+    ):
+        result.item_id = None
+
+    if (
+        payload.context != "general"
+        and result.action is not None
+    ):
+        result.answer = (
+            "Untuk prediksi kebutuhan, pilih Cek Kebutuhan. "
+            "Di sini aku bisa bantu ide olahan, prioritas belanja "
+            "dari stok saat ini, atau pemanfaatan bahan. "
+            "Mau fokus ke yang mana?"
+        )
+
+        result.action = None
+        result.item_id = None
+        result.lead_time_days = None
+
+    if result.action is None:
+        result.item_id = None
+        result.lead_time_days = None
+
+    if result.action == "predict":
+        if (
+            result.item_id is None
+            or result.item_id not in available_item_ids
+            or payload.inventory_status == "unavailable"
+        ):
+            result.action = None
+            result.item_id = None
+            result.lead_time_days = None
+
+            result.answer = (
+                "Aku belum bisa menentukan bahan yang akan "
+                "diprediksi dari data inventaris saat ini. "
+                "Pilih bahan yang ingin kamu periksa terlebih dahulu."
+            )
+
+    return result
+
+
+# ==========================================
 # CHAT HANDLER
 # ==========================================
 
@@ -541,6 +880,27 @@ def answer_chat(payload: ChatRequest) -> ChatResponse:
             status_code=422,
             detail="Pesan tidak boleh kosong.",
         )
+
+    # ======================================
+    # DETERMINISTIC INVENTORY ROUTE
+    # ======================================
+
+    # Hanya chat bebas yang diarahkan ke jawaban
+    # inventaris deterministik. Mode saran tetap
+    # mengikuti aturan mode yang sudah tersedia.
+    if (
+        payload.context == "general"
+        and is_deterministic_inventory_question(
+            payload.message
+        )
+    ):
+        logger.info(
+            "Using deterministic inventory answer | "
+            "inventory_status=%s",
+            payload.inventory_status,
+        )
+
+        return build_inventory_answer(payload)
 
     inventory_data = (
         [
@@ -602,72 +962,10 @@ def answer_chat(payload: ChatRequest) -> ChatResponse:
                 "Empty answer"
             )
 
-        # ======================================
-        # VALIDATE ITEM ID
-        # ======================================
-
-        available_item_ids = {
-            item.id
-            for item in payload.inventory
-        }
-
-        if (
-            result.item_id is not None
-            and (
-                payload.inventory_status == "unavailable"
-                or result.item_id not in available_item_ids
-            )
-        ):
-            result.item_id = None
-
-        # ======================================
-        # ADVICE MODE ACTION GUARD
-        # ======================================
-
-        if (
-            payload.context != "general"
-            and result.action is not None
-        ):
-            result.answer = (
-                "Untuk prediksi kebutuhan, pilih Cek Kebutuhan. "
-                "Di sini aku bisa bantu ide olahan, prioritas belanja "
-                "dari stok saat ini, atau pemanfaatan bahan. "
-                "Mau fokus ke yang mana?"
-            )
-
-            result.action = None
-            result.item_id = None
-            result.lead_time_days = None
-
-        # ======================================
-        # RESPONSE CONSISTENCY
-        # ======================================
-
-        if result.action is None:
-            result.item_id = None
-            result.lead_time_days = None
-
-        # ======================================
-        # PREDICTION GUARD
-        # ======================================
-
-        if result.action == "predict":
-            if (
-                result.item_id is None
-                or result.item_id not in available_item_ids
-                or payload.inventory_status == "unavailable"
-            ):
-                result.action = None
-                result.item_id = None
-                result.lead_time_days = None
-
-                result.answer = (
-                    "Aku belum bisa menentukan bahan yang akan "
-                    "diprediksi dari data inventaris saat ini. "
-                    "Pilih bahan yang ingin kamu periksa terlebih dahulu."
-                )
-
-        return result
+        return validate_chat_result(
+            result,
+            payload,
+        )
 
     except HTTPException:
         raise
@@ -682,6 +980,32 @@ def answer_chat(payload: ChatRequest) -> ChatResponse:
             "Gemini API request failed. HTTP status: %s",
             status_code,
         )
+
+        if status_code == 429:
+            # Safety fallback: inventory questions are normally
+            # handled before Gemini. This protects the route if
+            # inventory intent detection is extended in the future.
+            if (
+                payload.context == "general"
+                and is_deterministic_inventory_question(
+                    payload.message
+                )
+            ):
+                logger.warning(
+                    "Gemini quota exhausted; using inventory fallback."
+                )
+
+                return build_inventory_answer(payload)
+
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Kuota layanan AI sedang mencapai batas. "
+                    "Silakan coba lagi nanti. Pertanyaan stok "
+                    "dan pemakaian tetap dapat dijawab dari "
+                    "data inventaris."
+                ),
+            ) from error
 
         if status_code == 503:
             raise HTTPException(
