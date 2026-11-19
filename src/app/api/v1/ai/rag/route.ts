@@ -7,8 +7,9 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ML_API_URL =
-  process.env.ML_API_URL ?? "http://127.0.0.1:8000";
+const ML_API_URL = (
+  process.env.ML_API_URL ?? "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 
 const WINDOW_DAYS = 30;
 const MAX_BODY_BYTES = 4096;
@@ -47,10 +48,24 @@ type Transaction = {
   created_at: string;
 };
 
+type InventoryFeatures = {
+  averageDailyUsage: number;
+  averageDailyWaste: number;
+  usageCount: number;
+  usageDays: number;
+  dataQuality: DataQuality;
+};
+
 function jsonError(message: string, status: number) {
   return NextResponse.json(
-    { success: false, message },
-    { status, headers: responseHeaders }
+    {
+      success: false,
+      message,
+    },
+    {
+      status,
+      headers: responseHeaders,
+    }
   );
 }
 
@@ -123,6 +138,21 @@ function isRAGResponse(value: unknown): value is RAGResponse {
   );
 }
 
+function classifyDataQuality(
+  usageCount: number,
+  usageDays: number
+): DataQuality {
+  if (usageCount === 0) {
+    return "insufficient";
+  }
+
+  if (usageCount < 5 || usageDays < 3) {
+    return "limited";
+  }
+
+  return "adequate";
+}
+
 async function getTransactions(
   itemId: string,
   startDate: string,
@@ -174,12 +204,20 @@ async function getTransactions(
     if (rows.length < PAGE_SIZE) {
       return transactions;
     }
+
+    if (offset + PAGE_SIZE >= MAX_TRANSACTIONS) {
+      throw new Error(
+        "Riwayat transaksi mencapai batas pengambilan."
+      );
+    }
   }
 
-  throw new Error("Riwayat transaksi terlalu banyak.");
+  return transactions;
 }
 
-function calculateFeatures(transactions: Transaction[]) {
+function calculateFeatures(
+  transactions: Transaction[]
+): InventoryFeatures {
   let totalUsage = 0;
   let totalWaste = 0;
   let usageCount = 0;
@@ -190,37 +228,55 @@ function calculateFeatures(transactions: Transaction[]) {
     if (transaction.transaction_type === "usage") {
       totalUsage += transaction.quantity;
       usageCount++;
-      usageDays.add(transaction.created_at.slice(0, 10));
+
+      usageDays.add(
+        transaction.created_at.slice(0, 10)
+      );
     } else if (transaction.transaction_type === "waste") {
       totalWaste += transaction.quantity;
     }
   }
 
-  let dataQuality: DataQuality = "adequate";
-
-  if (usageCount === 0) {
-    dataQuality = "insufficient";
-  } else if (usageCount < 5 || usageDays.size < 3) {
-    dataQuality = "limited";
-  }
+  const numberOfUsageDays = usageDays.size;
 
   return {
     averageDailyUsage: totalUsage / WINDOW_DAYS,
     averageDailyWaste: totalWaste / WINDOW_DAYS,
-    dataQuality,
+    usageCount,
+    usageDays: numberOfUsageDays,
+    dataQuality: classifyDataQuality(
+      usageCount,
+      numberOfUsageDays
+    ),
   };
+}
+
+async function readJsonResponse(
+  response: Response
+): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("Respons layanan AI bukan JSON valid.");
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Authentication
+    // ======================================
+    // 1. AUTHENTICATION
+    // ======================================
+
     const auth = await verifyApiStaff();
 
     if (!auth.authorized) {
       return jsonError(auth.message, auth.status);
     }
 
-    // 2. Origin verification
+    // ======================================
+    // 2. ORIGIN VERIFICATION
+    // ======================================
+
     const configuredOrigin =
       process.env.APP_ORIGIN ??
       (process.env.NODE_ENV === "development"
@@ -245,25 +301,39 @@ export async function POST(request: NextRequest) {
 
       allowedOrigin = url.origin;
     } catch {
-      return jsonError("Konfigurasi APP_ORIGIN tidak valid.", 500);
+      return jsonError(
+        "Konfigurasi APP_ORIGIN tidak valid.",
+        500
+      );
     }
 
     if (request.headers.get("origin") !== allowedOrigin) {
-      return jsonError("Origin request tidak diizinkan.", 403);
+      return jsonError(
+        "Origin request tidak diizinkan.",
+        403
+      );
     }
 
-    // 3. Content-Type
+    // ======================================
+    // 3. CONTENT TYPE
+    // ======================================
+
     const contentType =
       request.headers.get("content-type") ?? "";
 
-    if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    if (
+      !/^application\/json(?:\s*;|$)/i.test(contentType)
+    ) {
       return jsonError(
         "Content-Type harus application/json.",
         415
       );
     }
 
-    // 4. Body validation
+    // ======================================
+    // 4. BODY VALIDATION
+    // ======================================
+
     const declaredLength = Number(
       request.headers.get("content-length")
     );
@@ -272,7 +342,10 @@ export async function POST(request: NextRequest) {
       Number.isFinite(declaredLength) &&
       declaredLength > MAX_BODY_BYTES
     ) {
-      return jsonError("Ukuran request terlalu besar.", 413);
+      return jsonError(
+        "Ukuran request terlalu besar.",
+        413
+      );
     }
 
     const rawBody = await request.text();
@@ -281,7 +354,10 @@ export async function POST(request: NextRequest) {
       new TextEncoder().encode(rawBody).byteLength >
       MAX_BODY_BYTES
     ) {
-      return jsonError("Ukuran request terlalu besar.", 413);
+      return jsonError(
+        "Ukuran request terlalu besar.",
+        413
+      );
     }
 
     let body: unknown;
@@ -289,7 +365,10 @@ export async function POST(request: NextRequest) {
     try {
       body = JSON.parse(rawBody);
     } catch {
-      return jsonError("Format JSON tidak valid.", 400);
+      return jsonError(
+        "Format JSON tidak valid.",
+        400
+      );
     }
 
     if (!isValidRequest(body)) {
@@ -299,7 +378,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Fetch actual inventory
+    // ======================================
+    // 5. FETCH ACTUAL INVENTORY
+    // ======================================
+
     const { data: item, error: itemError } =
       await supabaseAdmin
         .from("inventory_current_stock")
@@ -311,11 +393,16 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
     if (itemError) {
-      throw new Error("Gagal mengambil data inventory.");
+      throw new Error(
+        "Gagal mengambil data inventory."
+      );
     }
 
     if (!item) {
-      return jsonError("Item aktif tidak ditemukan.", 404);
+      return jsonError(
+        "Item aktif tidak ditemukan.",
+        404
+      );
     }
 
     const currentStock = Number(item.current_stock);
@@ -325,14 +412,21 @@ export async function POST(request: NextRequest) {
       !isValidStock(currentStock) ||
       !isValidStock(minimumStock)
     ) {
-      return jsonError("Data stok tidak valid.", 422);
+      return jsonError(
+        "Data stok tidak valid.",
+        422
+      );
     }
 
-    // 6. Transaction history
+    // ======================================
+    // 6. TRANSACTION HISTORY
+    // ======================================
+
     const now = new Date();
 
     const start = new Date(
-      now.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000
+      now.getTime() -
+        WINDOW_DAYS * 24 * 60 * 60 * 1000
     );
 
     const transactions = await getTransactions(
@@ -341,58 +435,86 @@ export async function POST(request: NextRequest) {
       now.toISOString()
     );
 
+    const features = calculateFeatures(
+      transactions
+    );
+
     const {
       averageDailyUsage,
       averageDailyWaste,
+      usageCount,
+      usageDays,
       dataQuality,
-    } = calculateFeatures(transactions);
+    } = features;
 
-    // 7. Predict with existing ML service
+    // ======================================
+    // 7. ML PREDICTION
+    // ======================================
+
     let mlResponse: Response;
 
     try {
-      mlResponse = await fetch(`${ML_API_URL}/predict`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          current_stock: currentStock,
-          minimum_stock: minimumStock,
-          average_daily_usage: averageDailyUsage,
-          average_daily_waste: averageDailyWaste,
-          lead_time_days: body.lead_time_days,
-        }),
-        signal: AbortSignal.timeout(5000),
-        cache: "no-store",
-      });
+      mlResponse = await fetch(
+        `${ML_API_URL}/predict`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            current_stock: currentStock,
+            minimum_stock: minimumStock,
+            average_daily_usage: averageDailyUsage,
+            average_daily_waste: averageDailyWaste,
+            lead_time_days: body.lead_time_days,
+          }),
+          signal: AbortSignal.timeout(5000),
+          cache: "no-store",
+        }
+      );
     } catch {
-      return jsonError("Layanan prediksi AI tidak tersedia.", 503);
+      return jsonError(
+        "Layanan prediksi AI tidak tersedia.",
+        503
+      );
     }
 
     if (!mlResponse.ok) {
-      return jsonError("Layanan prediksi AI gagal.", 502);
+      console.error(
+        "ML API returned status:",
+        mlResponse.status
+      );
+
+      return jsonError(
+        "Layanan prediksi AI gagal.",
+        502
+      );
     }
 
-    let mlData: unknown;
-
-    try {
-      mlData = await mlResponse.json();
-    } catch {
-      return jsonError("Respons prediksi AI tidak valid.", 502);
-    }
+    const mlData = await readJsonResponse(
+      mlResponse
+    );
 
     if (!isMLResponse(mlData)) {
-      return jsonError("Format prediksi AI tidak valid.", 502);
+      return jsonError(
+        "Format prediksi AI tidak valid.",
+        502
+      );
     }
 
-    // 8. Apply operational safety override
+    // ======================================
+    // 8. OPERATIONAL SAFETY OVERRIDE
+    // ======================================
+
     const finalStatus: StockStatus =
       currentStock <= minimumStock
         ? "Restock"
         : mlData.stock_status;
 
-    // 9. Generate RAG recommendation
+    // ======================================
+    // 9. RAG GENERATION
+    // ======================================
+
     let ragResponse: Response;
 
     try {
@@ -405,19 +527,27 @@ export async function POST(request: NextRequest) {
           },
           body: JSON.stringify({
             item_name: item.name,
+            category: item.category ?? null,
             current_stock: currentStock,
             minimum_stock: minimumStock,
             unit: item.unit,
             stock_status: finalStatus,
             data_quality: dataQuality,
             lead_time_days: body.lead_time_days,
+            average_daily_usage: averageDailyUsage,
+            average_daily_waste: averageDailyWaste,
+            usage_count: usageCount,
+            usage_days: usageDays,
           }),
           signal: AbortSignal.timeout(90000),
           cache: "no-store",
         }
       );
     } catch {
-      return jsonError("Layanan RAG tidak tersedia.", 503);
+      return jsonError(
+        "Layanan RAG tidak tersedia.",
+        503
+      );
     }
 
     if (!ragResponse.ok) {
@@ -432,13 +562,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let ragData: unknown;
-
-    try {
-      ragData = await ragResponse.json();
-    } catch {
-      return jsonError("Respons RAG tidak valid.", 502);
-    }
+    const ragData = await readJsonResponse(
+      ragResponse
+    );
 
     if (!isRAGResponse(ragData)) {
       return jsonError(
@@ -447,7 +573,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 10. Return result
+    // ======================================
+    // 10. RETURN RESULT
+    // ======================================
+
     return NextResponse.json(
       {
         success: true,
@@ -458,14 +587,25 @@ export async function POST(request: NextRequest) {
             category: item.category,
             unit: item.unit,
           },
+
           inventory: {
             current_stock: currentStock,
             minimum_stock: minimumStock,
           },
+
+          usage: {
+            average_daily_usage: averageDailyUsage,
+            average_daily_waste: averageDailyWaste,
+            usage_count: usageCount,
+            usage_days: usageDays,
+            observation_window_days: WINDOW_DAYS,
+          },
+
           prediction: {
             stock_status: finalStatus,
             confidence: mlData.confidence,
           },
+
           data_quality: dataQuality,
           lead_time_days: body.lead_time_days,
           summary: ragData.summary,
@@ -478,7 +618,10 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
-    console.error("RAG Next.js API error:", error);
+    console.error(
+      "RAG Next.js API error:",
+      error
+    );
 
     return jsonError(
       "Terjadi kesalahan saat menghasilkan rekomendasi AI.",
